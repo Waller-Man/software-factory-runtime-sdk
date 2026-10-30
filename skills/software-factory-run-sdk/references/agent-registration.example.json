@@ -1,0 +1,74 @@
+{
+  "agent": {
+    "agent_id": "agent:functional-logic-completion",
+    "name": "需求功能逻辑补全"
+  },
+  "agentVersion": {
+    "vertexId": "av:agent%3Afunctional-logic-completion:v2.0",
+    "properties": {
+      "version": "v2.0",
+      "description": "根据用户描述的软件系统及需求，结合用例、实体关系与 CRUD 缺口分析进行迭代需求补全，生成软件需求文档。",
+      "status": "enabled",
+      "developer": "吴祝骏、叶博一",
+      "invoke_kind": "dsh_tool",
+      "dsh_ref": "sf_functional_logic_completion_v2_0",
+      "input_schema": {
+        "description": "用户自然语言描述的软件系统及需求",
+        "x-artifact-kind": "text",
+        "x-media-type": "text/plain",
+        "x-required": true,
+        "x-allow-blank": false
+      },
+      "output_schema": {
+        "description": "补全后的软件需求文档",
+        "x-artifact-kind": "file",
+        "x-file-extension": ".docx"
+      },
+      "intermediate_artifacts_json": [
+        {
+          "description": "初始需求分析",
+          "x-artifact-kind": "file",
+          "x-file-extension": ".json"
+        },
+        {
+          "description": "逐轮检查与补全快照",
+          "x-artifact-kind": "file",
+          "x-file-extension": ".json"
+        },
+        {
+          "description": "CRUD矩阵及检查结果",
+          "x-artifact-kind": "file",
+          "x-file-extension": ".json"
+        },
+        {
+          "description": "E-R图源码",
+          "x-artifact-kind": "file",
+          "x-file-extension": ".puml"
+        },
+        {
+          "description": "用例图源码",
+          "x-artifact-kind": "file",
+          "x-file-extension": ".puml"
+        }
+      ],
+      "constraints_json": {
+        "runtime": "Python",
+        "version": "3.12"
+      },
+      "model_dependencies_json": [
+        {
+          "vendor": "DeepSeek",
+          "name": "deepseek-v4.1-flash"
+        }
+      ],
+      "object_categories_json": [
+        "软件系统及需求描述",
+        "软件需求文档"
+      ],
+      "performance_evidence_json": {
+        "evidence_kind": "paper",
+        "summary": "ICSE 2026《Unlocking the Silent Needs》，实验模型 Qwen3-32B。Table 3：PURE 的 Inventory、WebStore、Email 三个系统，每组运行3次，完整方法汇总 RR=112.9%、DR=125%、HR=0%；RR、DR为相对参考需求及实体数量的完整率，可超过100%。Figure 8：7个案例的平均 CRUD 缺口率 CR 最终为0%，正文报告2至4轮完成。"
+      }
+    }
+  }
+}

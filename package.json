@@ -1,0 +1,12 @@
+{
+  "name": "@software-factory/runtime-sdk", "version": "0.1.0", "type": "module",
+  "description": "TypeScript SDK for software factory Run business tools",
+  "repository": { "type": "git", "url": "https://github.com/Waller-Man/software-factory-runtime-sdk.git" },
+  "homepage": "https://github.com/Waller-Man/software-factory-runtime-sdk#readme",
+  "publishConfig": { "registry": "https://npm.pkg.github.com", "access": "restricted" },
+  "main": "./lib/index.js", "types": "./lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
+  "files": ["lib/", "README.md", "examples/", "docs/", "skills/"],
+  "peerDependencies": { "@deepseek-ai/cordis": "4.0.5-alpha.1", "@deepseek-ai/dsh-tools": "0.2.1-alpha.2" },
+  "engines": { "node": ">=24" }
+}

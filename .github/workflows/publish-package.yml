@@ -1,0 +1,110 @@
+name: Publish SDK package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing verified Release tag
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-sdk-package
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      NPM_CONFIG_USERCONFIG: /tmp/software-factory-runtime-sdk.npmrc
+    steps:
+      - name: Check target and download verified Release
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          assert.equal(process.env.GITHUB_REPOSITORY, 'Waller-Man/software-factory-runtime-sdk');
+          assert.match(process.env.RELEASE_TAG, /^v\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/);
+          NODE
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private')" = true
+          mkdir -p release-assets package-upload
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern 'software-factory-runtime-sdk-*.tgz' \
+            --pattern 'software-factory-runtime-sdk-*.zip' \
+            --pattern 'package-check.json' --pattern 'SHA256SUMS.txt'
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+
+      - name: Prepare account-scoped package without changing SDK imports
+        shell: bash
+        run: |
+          tar -xzf "release-assets/software-factory-runtime-sdk-${RELEASE_TAG#v}.tgz" -C package-upload
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFile, writeFile } from 'node:fs/promises';
+          const file = 'package-upload/package/package.json';
+          const pkg = JSON.parse(await readFile(file, 'utf8'));
+          assert.equal(pkg.name, '@software-factory/runtime-sdk');
+          assert.equal(pkg.version, process.env.RELEASE_TAG.slice(1));
+          assert.notEqual(pkg.private, true);
+          pkg.name = '@waller-man/software-factory-runtime-sdk';
+          pkg.repository = { type: 'git', url: `https://github.com/${process.env.GITHUB_REPOSITORY}.git` };
+          pkg.publishConfig = { registry: 'https://npm.pkg.github.com', access: 'restricted' };
+          await writeFile(file, JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+          printf '%s\n' '@waller-man:registry=https://npm.pkg.github.com' \
+            '//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Publish private npm package
+        working-directory: package-upload/package
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { execFileSync, spawnSync } from 'node:child_process';
+          const name = '@waller-man/software-factory-runtime-sdk';
+          const version = process.env.RELEASE_TAG.slice(1);
+          const registry = '--registry=https://npm.pkg.github.com';
+          const result = spawnSync('npm', ['view', `${name}@${version}`, registry, '--json'], { encoding: 'utf8' });
+          if (result.error) throw result.error;
+          if (result.status === 0) {
+            const existing = JSON.parse(result.stdout);
+            const [candidate] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { encoding: 'utf8' }));
+            assert.equal(existing.dist.integrity, candidate.integrity, 'Existing version differs from this Release');
+            console.log('Identical package version already published; continuing verification.');
+          } else {
+            const error = JSON.parse(result.stdout).error;
+            assert.equal(error?.code, 'E404', result.stderr);
+            execFileSync('npm', ['publish', registry, '--access=restricted', '--ignore-scripts'], { stdio: 'inherit' });
+          }
+          NODE
+
+      - name: Verify package version, privacy and source repository
+        working-directory: package-upload/package
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          const version = process.env.RELEASE_TAG.slice(1);
+          const name = '@waller-man/software-factory-runtime-sdk';
+          const npm = JSON.parse(execFileSync('npm', ['view', `${name}@${version}`, '--registry=https://npm.pkg.github.com', '--json'], { encoding: 'utf8' }));
+          assert.equal(npm.name, name);
+          assert.equal(npm.version, version);
+          assert.ok(npm.dist?.integrity);
+          const [candidate] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], { encoding: 'utf8' }));
+          assert.equal(npm.dist.integrity, candidate.integrity);
+          const sourceRepository = `https://github.com/${process.env.GITHUB_REPOSITORY}.git`;
+          assert.equal(npm.repository.url.replace(/^git\+/, ''), sourceRepository);
+          const pkg = JSON.parse(execFileSync('gh', ['api', 'users/Waller-Man/packages/npm/software-factory-runtime-sdk'], { encoding: 'utf8' }));
+          assert.equal(pkg.visibility, 'private');
+          if (pkg.repository) assert.equal(pkg.repository.full_name, process.env.GITHUB_REPOSITORY);
+          console.log(JSON.stringify({ name, version, visibility: pkg.visibility, sourceRepository, url: pkg.html_url, integrity: npm.dist.integrity }));
+          NODE

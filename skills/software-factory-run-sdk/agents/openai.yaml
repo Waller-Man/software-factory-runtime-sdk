@@ -1,0 +1,4 @@
+interface:
+  display_name: "软件工厂 Run SDK 接入"
+  short_description: "将算法接入DSH Run，交付业务插件、使用文档及Agent入库资料"
+  default_prompt: "请使用 $software-factory-run-sdk，读取项目与实际SDK，保留原算法完成DSH后端插件接入，交付使用README、轻量验证记录和八类Agent入库资料；按现有授权范围工作，不自动写数据库。"

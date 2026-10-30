@@ -1,0 +1,50 @@
+# Dependencies and local caches
+node_modules/
+.npm/
+.cache/
+
+# Compiled code, package archives and extracted releases
+/lib/
+/dist/
+/artifacts/
+/release/
+/releases/
+/vendor/
+/*.tgz
+/*.zip
+*.tsbuildinfo
+
+# Local debug runs, tests and task materials
+/coverage/
+/test-results/
+/tmp/
+/temp/
+/outputs/
+/workspaces/
+*.log
+*.tmp
+
+# Local profiles and credentials; keep empty configuration templates
+/.dsh/
+/profile/
+credentials.json
+connection.private.json
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+!.npmrc.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor and OS files
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Track src/, examples/, docs/, skills/, README, manifests and lockfiles.
