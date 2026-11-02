@@ -92,6 +92,8 @@ execution.outputDirectory/          # 此次实现落在 workspace/outputs/runs/
 
 本次查到的 Runtime 为每次 model.call 创建隔离、无工具的模型 Session，固定路由来自任务记录；没有为每次调用创建 Agent。其他版本必须重新查证。多轮历史由 messages 显式传递，日志和用量由宿主链路记录。
 
+2026-11-02补充：SDK／Runtime 0.2.0支持model.call({messages,temperature?,maxTokens?,stop?})。三个字段由算法逐次提供，不改ModelRef或前端；省略保持0.1.0行为，旧SDK插件可用新版Runtime。temperature为0～2有限数且0不能被真假判断丢弃，maxTokens为正整数，stop为至少一项的非空字符串数组。新增参数需要新Runtime；不要在旧Runtime失败后静默删参数重试。具体提供方可能忽略／不转发某项：本地DeepSeek thinking忽略温度，llm-pi-ai当前未转发stop。保留分阶段调用语义，不自动切换模型或推理模式。
+
 如项目需要图片，核对目标 ModelRequest：此版 user.content 可含 text/image_url 块，system/assistant 为文本。本地文件路径不是 image_url，应在已授权范围读入并使用支持的 Data URL 或可访问 URL。检查模型声明的图片能力及附件服务；不假设所有模型支持图片，不把文档/PDF或厂商 file_id 直接当成图片参数。日志保存附件引用，避免重复存 Base64。
 
 ## 版本与数据库边界

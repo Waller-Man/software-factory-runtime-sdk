@@ -19,7 +19,7 @@ Python 不持有 API Key，不继续独立连接厂商。移除/替换硬编码�
 | TS → Python | start | 协议版本、runId、已验证业务输入、宿主 outputDirectory |
 | Python → TS | ready/启动阶段完成 | 已接收输入且实际目录写入成功；不是仅进程存在 |
 | Python → TS | step / log | 阶段、开始/完成、轮次及有限业务日志 |
-| Python → TS | model_request | 任务内唯一 id、模块/轮次、原语义的 messages |
+| Python → TS | model_request | 任务内唯一 id、模块/轮次、原语义的 messages；SDK／Runtime 0.2.0起可附算法实际提供的temperature／maxTokens／stop |
 | TS → Python | model_response | 对应 id、runId、text 或结构化 error |
 | Python → TS | artifact / final | 任务内相对路径、可序列化结果及方法状态 |
 | 任意停止路径 | cancel / error | 标识、可读错误；取消仍需宿主终止兜底 |
@@ -33,6 +33,8 @@ Python 不持有 API Key，不继续独立连接厂商。移除/替换硬编码�
 - 取消消息可作合作式通知，但 Python 若正阻塞读或计算，需 signal 和受管进程范围终止兜底。
 
 Req 为每次模型请求只允许两条纯文本消息，这是该项目原算法约束，不应复制成所有 Python 插件的限制。需要多轮或图片的项目应按真实 SDK 类型验证 messages。
+
+接入0.2.0的采样／输出控制时，Python实际发出参数、TS校验并转发到model.call，不能只在快照保存originalTemperature。将Python的max_tokens显式映射为SDK的maxTokens；其他缺省字段省略，不统一补默认值。temperature=0必须按存在性判断保留；连续阶段0.3／0.0／0.2分别发送，避免把某阶段参数缓存成任务全局配置。旧插件不新增字段即可继续运行；第三方适配器或模型忽略参数属于单独兼容限制，不能通过私自改模型／推理强度来补偿。
 
 ## 启动与进程生命周期
 

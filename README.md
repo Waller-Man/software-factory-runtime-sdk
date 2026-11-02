@@ -1,6 +1,6 @@
 # 软件工厂 Run TypeScript SDK
 
-适用：Runtime SDK 0.1.0、DSH 0.2.1-alpha.2、Node.js 24+。
+适用：Runtime SDK 0.2.0、DSH 0.2.1-alpha.2、Node.js 24+。
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
 
@@ -51,10 +51,10 @@ my-plugin/
 
 ## 2. 导入 SDK
 
-先取得平台交付的 `software-factory-runtime-sdk-0.1.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
+先取得平台交付的 `software-factory-runtime-sdk-0.2.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
 
 ```powershell
-npm.cmd install ./vendor/software-factory-runtime-sdk-0.1.0.tgz
+npm.cmd install ./vendor/software-factory-runtime-sdk-0.2.0.tgz
 ```
 
 也可取得SDK ZIP，解压后将**包含package.json及lib的已构建SDK目录**作为本地依赖安装。Git源码ZIP与预编译SDK包不同；只含src的未构建源码不能替代上述TGZ。SDK不假定已发布到公共npm。
@@ -67,10 +67,12 @@ npm.cmd install ./vendor/software-factory-runtime-sdk-0.1.0.tgz
 ```
 
 ```powershell
-npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.1.0"
+npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.2.0"
 ```
 
 需要能够读取该私有包的GitHub认证；没有相应认证时使用Release TGZ安装。GitHub包与TGZ的SDK实现相同，区别是注册名称和发布元数据；下面的import不变。
+
+Packages安装还需要维护者已发布对应版本；当前本地交付包可直接按上面的TGZ方式安装，远程版本以实际发布页面为准。
 
 导入方式：
 
@@ -308,6 +310,9 @@ addArtifact 不生成或复制文件；最终返回的是已登记的 final 文�
 | messages | 是 | 至少一条消息 |
 | messages[].role | 是 | system、user 或 assistant |
 | messages[].content | 是 | 文本字符串；user 消息也支持文本／图片内容块数组 |
+| temperature | 否 | 本次调用温度，0～2的有限数；0会原样传递 |
+| maxTokens | 否 | 本次最大输出Token数，正整数，实际限制取决于模型 |
+| stop | 否 | 本次停止序列，非空字符串数组；每项不能为空，空格和换行原样保留 |
 | content[].type | 数组时是 | text 或 image_url |
 | content[].text | text 时是 | 文本内容 |
 | content[].image_url.url | image_url 时是 | 公网 HTTP(S) 图片地址，或 data:image/...;base64,... |
@@ -322,6 +327,25 @@ const answer = await execution.model.call({
 // 伪代码：使用回答继续你的算法。
 const result = 根据模型回答继续处理(answer.text);
 ```
+
+三个采样／输出控制参数由算法逐次提供，不需要前端配置。例如分解、校验、生成阶段分别使用不同温度：
+
+```ts
+const decomposition = await execution.model.call({ messages: 分解消息, temperature: 0.3 });
+const verification = await execution.model.call({ messages: 校验消息, temperature: 0.0 });
+const generation = await execution.model.call({
+  messages: 生成消息,
+  temperature: 0.2,
+  maxTokens: 8192,
+  stop: ['<END>']
+});
+```
+
+这些值仅影响本次请求，不改变任务模型、推理强度或其他调用。`stop`是让模型遇到指定序列时停止生成，不是取消任务。三个字段均省略时，Runtime不补造默认值，继续使用DSH路由／适配器默认行为；返回值不变。非法值和未知字段（例如top_p）会被拒绝，达到输出上限仍报MODEL_OUTPUT_TRUNCATED。
+
+**兼容性**：SDK／Runtime 0.2.0新增这些可选字段。已有SDK 0.1.0插件可直接使用新版Runtime，无须改代码或重新安装SDK；要在业务源码使用新字段，需更新SDK类型并部署Runtime 0.2.0或以上。旧Runtime仍会拒绝新字段，不会静默删除参数后重试。历史任务和现有前端接口不变。
+
+Runtime把参数交给DSH的prepareCall，日志JSON的requestedControls保留算法显式设置，request/header.config记录DSH准备后实际发送的配置；省略参数的旧式调用不新增requestedControls。转发成功不代表所有模型都会采用参数：本地DeepSeek适配器转发三项，但官方thinking模式忽略温度；本地llm-pi-ai路径尚未转发stop。第三方路由应按实际适配器和模型验证，不自动更改推理模式或模型。
 
 图片解析仍通过同一个 call，风格与开发者直接调用模型 API 相似：
 
@@ -539,6 +563,8 @@ async function runPythonBusiness(input, execution) {
 
 Python 依赖在部署准备阶段安装，运行任务时不自动安装。调试顺序为：单独调 Python 函数 → 验证输入输出 → 用 TS 调试入口调用 → 在 DSH 网页调用。需要模型时优先由 TS 使用 model.call，将必要结果传给 Python，不传模型 API Key。
 
+已有算法的分阶段temperature、maxTokens、stop也应经Python消息传给TS，再传入model.call；只记入快照不会生效。Python若使用max_tokens，由桥接层映射成maxTokens。只转发算法实际提供的字段，按undefined判断，不要用真假判断丢掉temperature=0；不要为省事给旧算法统一填默认值。
+
 ## 8. 开发者应当交付什么
 
 | 交付物 | 应包含什么 |
@@ -695,4 +721,4 @@ for (const [key, value] of Object.entries(开发者提供的版本属性)) {
 
 维护者在完整工作区生成SDK安装包后，交付TGZ／ZIP；包内包含README、公开类型、示例、协议文档与完整Skill。源码与预编译包分别管理，不把lib／artifacts提交进源码Git。
 
-GitHub Packages由本仓库的 `Publish SDK package` 手动Actions工作流发布：先发布包含TGZ、ZIP、package-check.json和SHA256SUMS.txt的Release，再在Actions填写对应tag（如v0.1.0）运行。工作流校验Release文件，将临时发布副本命名为账号范围的 `@waller-man/software-factory-runtime-sdk`，使用仓库内置GITHUB_TOKEN发布私有包；不修改源代码导入名，也不需要将个人令牌交给仓库。工作流不承担源码独立构建，不要直接在未构建的源码目录执行npm publish。
+GitHub Packages由本仓库的 `Publish SDK package` 手动Actions工作流发布：先发布包含TGZ、ZIP、package-check.json和SHA256SUMS.txt的Release，再在Actions填写对应tag（如v0.2.0）运行。工作流校验Release文件，将临时发布副本命名为账号范围的 `@waller-man/software-factory-runtime-sdk`，使用仓库内置GITHUB_TOKEN发布私有包；不修改源代码导入名，也不需要将个人令牌交给仓库。工作流不承担源码独立构建，不要直接在未构建的源码目录执行npm publish。

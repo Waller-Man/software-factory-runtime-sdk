@@ -64,6 +64,8 @@ DSH 网页/聊天
 
 模型只经过 `execution.model.call()`，凭据留在 DSH。主聊天只传明确业务输入并接收必要摘要和引用。各算法模块按原有语义显式组织 `messages`；不要把所有阶段混入一个不断增长的历史。
 
+目标SDK／Runtime>=0.2.0时，保留算法逐次给出的temperature、maxTokens、stop并贯通Python／TS桥接；0温度不能丢失，未提供的字段不补默认值。旧插件只传messages仍可使用新版Runtime。字段约束与提供方限制见[Run协议](references/run-contract.md)，不能仅将原参数存入快照就声称已恢复算法语义。
+
 核对 Runtime 的实际会话实现：隔离粒度可能是每次模型请求，并不等于新建 Agent 或网页中可见的聊天。不能仅生成 runId 或直接调用 `ctx.llm` 就声称已隔离。
 
 ### 提供真实阶段与产物

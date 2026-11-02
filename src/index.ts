@@ -15,7 +15,7 @@ export interface ExecutionContext {
   registerCleanup(callback: () => void | Promise<void>): void;
   readonly model: {
     readonly selection?: ModelRef;
-    /** Stateless API-style request: user content may mix text and image_url parts. */
+    /** Stateless API-style request with optional per-call temperature, maxTokens and stop. */
     call(request: ModelRequest): Promise<ModelResponse>;
   };
 }
