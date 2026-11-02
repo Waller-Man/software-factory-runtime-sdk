@@ -4,6 +4,12 @@
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
 
+## 0.2.0 更新说明
+
+- `execution.model.call()` 新增可选参数 `temperature`、`maxTokens`、`stop`，由算法按阶段逐次提供。
+- 原来的 `{ messages }` 调用方式和返回格式不变；使用新参数需配套 Runtime 0.2.0 或以上，旧 SDK 插件仍可使用新版 Runtime。
+- 补充参数用法、Python／TS 桥接和模型适配限制说明，避免迁移时丢失原算法的阶段温度。
+
 推荐顺序：安装 SDK → 登记业务函数 → 接入上报与产物 → 小输入调试 → 交付 DSH 插件、用户 README 与 Agent 入库资料。SDK 是项目依赖，不是单独安装启用的 DSH 服务；实际运行还需要宿主中的 Runtime 插件。
 
 下载交付包见本仓库的 [Releases](https://github.com/Waller-Man/software-factory-runtime-sdk/releases)。GitHub Packages安装方式见下方，代码中的SDK导入名保持不变。
