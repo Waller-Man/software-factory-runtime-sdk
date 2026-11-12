@@ -66,6 +66,10 @@ DSH 网页/聊天
 
 原生服务与挂载方式见[Run协议中的用户配置接入](references/run-contract.md#用户配置接入)。业务README须说明页面入口、字段含义、默认值及保存后的生效范围；不要仅交付需要用户手改的YAML或`.env`模板。
 
+### 尽可能兼容 Linux 服务器
+
+**业务插件应尽可能兼容 Linux，为后续服务器部署做准备。** 使用跨平台路径 API，注意文件名大小写，不写死 Windows 盘符、反斜杠、`.exe` 或 PowerShell／CMD 命令。Python、Java 等程序使用可配置路径或系统 PATH，区分虚拟环境的 `Scripts/` 与 `bin/`，不复制本机虚拟环境交付；依赖优先选支持 Linux 的版本。业务 README 说明 Linux 依赖安装与启动方式、已验证环境及限制；未在 Linux 验证时如实标注，不把兼容性设计当作验证结果。
+
 ### 复用模型，不复用主聊天历史
 
 旧项目可以继续经过 `execution.model.call()`；SDK／Runtime>=0.3.0也可用 `execution.model.getConnection({protocol})`，把任务临时连接交给原有 OpenAI／Anthropic 客户端。真实凭据留在DSH，模型和思考强度由上层指定，协议由工具声明，不让AI选择协议。Runtime>=0.3.1按厂商已确认入口路由，不要求工具协议与DSH自己的默认协议相同：DeepSeek官方连接可供工具使用OpenAI格式，仍复用相同凭据。自定义反代不能盲目替换URL；不转换正文或假定任意厂商支持全部协议。接入细节见[Run协议](references/run-contract.md)。主聊天只传明确业务输入及必要摘要，历史按原算法显式组织。
@@ -75,6 +79,8 @@ DSH 网页/聊天
 0.3.0不再逐次持久化DSH聊天，旧接口只使用隔离内存上下文；请求记录归入任务的logs/model-calls。更早版本应核对实际会话实现，不能把旧部署行为当成新版能力。
 
 ### 提供真实阶段与产物
+
+SDK／Runtime>=0.4.0时，确需人工信息可await execution.interaction.ask，使用select／text／mixed三种模式；select只能选给定value，text只收非空文字，mixed至少填一项。同一Run依次提问，Python经TS桥接往返，不给下层网页授权Token。问题由现有执行卡展示，算法等待真实回答后继续；取消／超时不自动选默认答案。首版不做附件上传、通用暂停恢复或服务重启后恢复，业务确认不替代宿主权限审批。接口示例见SDK README 4.11。
 
 阶段在开始工作前上报，日志进任务记录，stdout 协议与 stderr 分开。允许不报百分比；若报，必须有明确计算规则、任务内不倒退、注明估算，不以计时器假装进度。100% 不等于需求完整或方法收敛。
 

@@ -1,12 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { assertObjectJsonSchema, validateJsonSchemaValue, type ToolDefinition, type ToolRunContext, type JsonSchemaNode } from '@deepseek-ai/dsh-tools';
-import type { Artifact, ArtifactInput, BusinessResult, ModelRef, ModelRequest, ModelResponse, ModelConnection, ModelProtocol, ProgressReport, IssueReport, ReportStatus, RunObject } from '@software-factory/contracts/runtime';
+import type { Artifact, ArtifactInput, BusinessResult, ModelRef, ModelRequest, ModelResponse, ModelConnection, ModelProtocol, ProgressReport, IssueReport, ReportStatus, RunObject, InteractionRequest, InteractionAnswer } from '@software-factory/contracts/runtime';
 export type * from '@software-factory/contracts/runtime';
+
+export interface RunInteraction {
+  ask<T extends InteractionRequest['type']>(request: Extract<InteractionRequest, { type: T }>): Promise<Extract<InteractionAnswer, { type: T }>>;
+}
 
 export interface ExecutionContext {
   readonly runId: string;
   readonly outputDirectory: string;
   readonly signal: AbortSignal;
+  readonly interaction: RunInteraction;
   reportStatus(status: ReportStatus, message?: string): Promise<void>;
   reportProgress(report: ProgressReport): Promise<void>;
   log(message: string, stage?: string): Promise<void>;
@@ -52,7 +57,10 @@ export function registerRunTool<I = RunObject>(ctx: Context, definition: RunTool
       const execution = runtime.executionFor(exec, tool);
       const errors = validateJsonSchemaValue(parameters as JsonSchemaNode, input, 'input');
       if (errors.length) throw new Error('INPUT_VALIDATION_FAILED: ' + errors.join('; '));
-      return definition.execute(input as I, execution);
+      const compatible = execution.interaction ? execution : Object.freeze({ ...execution, interaction: Object.freeze({
+        ask: async () => { throw new Error('INTERACTION_UNSUPPORTED: 人工交互需要 Runtime 0.4.0 或以上'); },
+      }) });
+      return definition.execute(input as I, compatible);
     },
   };
   return ctx.effect(() => {

@@ -1,8 +1,14 @@
 # 软件工厂 Run TypeScript SDK
 
-适用：Runtime SDK 0.3.0、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
+适用：Runtime SDK 0.4.0、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
+
+## 0.4.0 更新说明
+
+- 新增`execution.interaction.ask()`，支持纯选择、纯文本、选择加文本；等待真实用户提交后再继续算法。
+- 需Runtime 0.4.0和WebUI 0.1.2；编排发起时配套编排0.1.2。旧业务接口保持，未使用交互的插件不受影响。
+- 问题与答案归任务记录，默认等待24小时，等待不消耗任务执行预算；取消或超时会使ask抛出错误。不提供通用暂停恢复或附件上传。
 
 ## 0.3.0 更新说明
 
@@ -63,10 +69,10 @@ my-plugin/
 
 ## 2. 导入 SDK
 
-先取得平台交付的 `software-factory-runtime-sdk-0.3.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
+先取得平台交付的 `software-factory-runtime-sdk-0.4.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
 
 ```powershell
-npm.cmd install ./vendor/software-factory-runtime-sdk-0.3.0.tgz
+npm.cmd install ./vendor/software-factory-runtime-sdk-0.4.0.tgz
 ```
 
 也可取得SDK ZIP，解压后将**包含package.json及lib的已构建SDK目录**作为本地依赖安装。Git源码ZIP与预编译SDK包不同；只含src的未构建源码不能替代上述TGZ。SDK不假定已发布到公共npm。
@@ -79,7 +85,7 @@ npm.cmd install ./vendor/software-factory-runtime-sdk-0.3.0.tgz
 ```
 
 ```powershell
-npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.3.0"
+npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.4.0"
 ```
 
 需要能够读取该私有包的GitHub认证；没有相应认证时使用Release TGZ安装。GitHub包与TGZ的SDK实现相同，区别是注册名称和发布元数据；下面的import不变。
@@ -166,7 +172,7 @@ inputSchema 必须与真实函数参数一致，例如业务接受 text，就声
 
 ## 4. 下层接口：业务函数向 Run 上报
 
-下层共 9 项：登记函数、execute 回调和 7 个 execution 方法。以下各节独立说明用途、参数、返回值与伪代码。异步调用均应 await。
+下层共11项：登记函数、execute回调和9个execution方法（含模型网关、人工交互）。以下各节独立说明用途、参数、返回值与伪代码。异步调用均应await。
 
 ### 4.1 registerRunTool(ctx, definition)
 
@@ -505,6 +511,40 @@ result = 按原算法继续处理(answer.choices[0].message.content)
 
 **范围**：网关只开放这三个 POST 端点，复用 DSH API Key 连接及模型目录；不支持账号授权转换、协议互转、Files 上传、模型列表、Responses 查询／删除或后台任务轮询。图片／历史内容按所用协议和模型能力传递；厂商文件 ID 的上传与生命周期仍由业务另外处理。默认单次模型调用8分钟、整体任务1小时，可在Runtime插件详情页可视化修改；保存用于新任务，运行中任务保留原时限。客户端示例超时与当前8分钟默认值对应，自定义时需一并留意客户端限制。HTTP请求／响应各限64MiB；网关不自动重试。记录存入`execution.outputDirectory/logs/model-calls/<requestId>.json`，卡片按需读取详情，内联图片数据省略。
 
+### 4.11 interaction.ask(request)：运行中询问用户
+
+需要SDK／Runtime 0.4.0、WebUI 0.1.2。仅在算法确实需要人工信息时调用，必须`await`答案再继续；同一任务同时只能有一个问题。
+
+| type | 请求内容 | 返回内容（另含interactionId、type） |
+| --- | --- | --- |
+| select | question、options:[{value,label,description?}] | value：所选选项值；拒绝文本 |
+| text | question、placeholder? | text：非空文本；不允许选项 |
+| mixed | question、options、placeholder? | value?、text?，至少一项，可以同时填写 |
+
+三种请求都可提供`detail?`和`timeoutMs?`。question必填；选项value须唯一，最多30项；文本最多16384字符。默认等待24小时，timeoutMs为1毫秒至7天的整数。模型、聊天身份和runId由Run绑定，不由业务工具填写。
+
+```ts
+const answer = await execution.interaction.ask({
+  type: 'select',
+  question: '发现需求冲突，接下来如何处理？',
+  options: [
+    { value: 'continue', label: '保留冲突并继续' },
+    { value: 'redo', label: '重新分析' }
+  ]
+});
+// 伪代码：根据稳定的value判断，不依赖显示文字。
+根据选择继续处理(answer.value);
+
+const supplement = await execution.interaction.ask({
+  type: 'text', question: '请补充用户角色。', placeholder: '例如：管理员、教师、学生'
+});
+使用补充信息(supplement.text); // 伪代码
+```
+
+等待时卡片保留原阶段／进度并显示“等待用户”，不计入任务执行预算。用户提交成功后才返回，取消或等待超时抛出错误，不返回虚构答案；超时报INTERACTION_TIMEOUT。业务确认不代替DSH系统权限审批。刷新网页可继续回答，服务重启则任务中断；首版不支持文件上传、多选或重启后恢复。
+
+Python通过现有受管进程通信发送提问给TS，再由TS调用此接口并把结构化答案送回Python；通信自行关联请求ID并响应取消。无需Python登录网页、获取用户授权Token或自行搭建HTTP问答服务。新SDK配旧Runtime调用此方法时明确报INTERACTION_UNSUPPORTED；旧插件不使用它时不受影响。
+
 ## 5. 上层接口：如何传参启动和查看任务
 
 下层是你的函数向 Run 上报；上层是网页、编排或其他调用者向 Run 发起请求。上层接口**不是从本 SDK 导入的 JS 函数**。
@@ -521,6 +561,10 @@ result = 按原算法继续处理(answer.choices[0].message.content)
 | 获取文件 | sf_runtime_get_artifact／getArtifact | `{runId,artifactId}` | 文件元数据和认证 downloadUrl |
 | 模型请求列表 | 仅 Remote：listModelCalls | `{runId}` | 请求摘要数组 |
 | 模型请求详情 | 仅 Remote：getModelCall | `{runId,requestId}` | 请求、响应及状态详情 |
+| 交互记录 | 仅 Remote：listInteractions | `{runId}` | 问题、状态、答案与时间数组 |
+| 用户回答 | 仅 Remote：answerInteraction | `{runId,interactionId,answer}`，另需网页uiToken | `{interactionId,status:'answered'}`；不提供模型Tool |
+
+getRun新增可选pendingInteraction、interactions、sourceSessionId和executionSessionId。answerInteraction的会话路由使用sourceSessionId；网页通过同源POST `/api/sf-runtime/ui-session`取得短期授权，凭证只保留在网页内存，由配套WebUI处理，不交给业务工具或模型。RunStatus不增加枚举值，等待期间仍为running，卡片根据pendingInteraction显示“等待用户”。
 
 服务返回 `{ok:true,data}` 或 `{ok:false,error:{code,message}}`。Remote 使用已有 DSH 认证连接、sfRuntime 命名空间及真实 runtimeSessionId，外层还有标准 RemoteResult；接线见 [接口规范](docs/runtime-api.md)。不要自行假定存在公共 HTTP 地址。
 
@@ -684,6 +728,9 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 验收重点：真实input与inputSchema一致；通过正常Run链执行；最终文件先保存再登记并返回artifactId；阶段与百分比来自真实处理；model按需使用；错误不能伪装成成功；signal与清理回调能停止自己的任务。
 
 交付物不得包含API Key、数据库密码、真实用户任务材料或本机专用路径。Python等依赖在部署准备阶段安装，不在每次运行任务时自动pip install。业务插件启用不自动写HugeGraph。
+
+**业务插件应尽可能兼容 Linux，为后续部署到服务器做准备。** 路径使用跨平台 API，注意 Linux 文件名大小写；不要写死 Windows 盘符、反斜杠、`.exe` 或 PowerShell／CMD 命令。Python、Java 等程序通过可配置路径或系统 PATH 查找，虚拟环境区分 Windows 的 `Scripts/` 与 Linux 的 `bin/`，不随包复制本机虚拟环境。依赖优先选择支持 Linux 的版本，业务 README 应说明 Linux 的依赖安装与启动方式、已验证环境及尚存限制；仅在 Windows 验证时明确标注，不宣称已支持 Linux。
+
 **需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。确实无法通过界面配置时，再使用 `.env`，并说明填写方法。**
 ## 9. 开发者交付的业务 README 要写什么
 
@@ -694,7 +741,7 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 | 章节 | 用户需要知道什么 |
 | --- | --- |
 | 功能与输入输出 | 算法解决什么问题、处理对象、最终交付及中间材料；有什么明确限制 |
-| 服务端环境 | 兼容DSH／Node／Python版本、解释器选择、真实第三方依赖及部署准备步骤 |
+| 服务端环境 | 兼容DSH／Node／Python版本、解释器选择、真实第三方依赖及部署准备步骤；说明Linux安装与启动方式、已验证环境及限制 |
 | 新电脑快速启动 | 从哪里取得预编译包，在DSH如何安装启用，Runtime与业务插件的启用顺序，如何判断入口已就绪 |
 | 实际调用示例 | 真实toolId、参数名、类型、必填要求、最小请求；文件路径属于DSH服务端，不能把浏览器电脑路径当服务端路径 |
 | 模型选择 | 是否需要模型，继承来源会话还是显式指定，实际所需能力；不索取或硬编码模型API Key |

@@ -19,6 +19,8 @@ SDK README 的占位业务函数、调试上下文创建器、调用 DSH Tool �
 
 ## 已核对的 SDK 形状
 
+0.4.0追加execution.interaction.ask，三种请求及返回按SDK README 4.11。依次await问题，等待不消耗任务执行预算，取消／超时抛错；不要把回答实现成模型Tool、自动默认答案或Python自行调用网页接口。主聊天来源由Host绑定，用户操作使用网页授权，任务模型凭证无回答权限。run.json保存问题和答案，重启不恢复调用栈。
+
 0.3.0追加能力：`registerRunTool`可声明`modelProtocols`数组；`execution.model.getConnection({protocol})`返回`{baseUrl,apiKey,model,protocol}`。仅接收openai-completions、openai-responses、anthropic-messages。Runtime>=0.3.1由工具协议选择厂商已确认入口，不要求与DSH默认调用协议相同，不让AI选择协议：DeepSeek官方连接支持工具选三种入口，OpenAI官方支持Chat／Responses；自定义代理保留原地址，未登记其他入口时明确报错，不猜URL或转换正文。模型和思考强度由上层指定，apiKey为临时令牌，真实Key仅由Runtime读取。旧model.call、进度、产物和取消接口保持。完整例子见SDK README 4.10。
 
 新请求记录在任务logs/model-calls/<requestId>.json，详情经认证getModelCall读取，不能猜公开文件URL。网关支持三种POST和SSE，不含上传、模型列表、Responses查询／删除或后台任务轮询；扩展字段按协议转发，能力由模型决定。Python可保留客户端但只能持有任务临时连接，详见[Python适配](python-adapter.md)。
