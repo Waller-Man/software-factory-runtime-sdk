@@ -19,6 +19,22 @@ SDK README 的占位业务函数、调试上下文创建器、调用 DSH Tool �
 
 ## 已核对的 SDK 形状
 
+0.3.0追加能力：`registerRunTool`可声明`modelProtocols`数组；`execution.model.getConnection({protocol})`返回`{baseUrl,apiKey,model,protocol}`。仅接收openai-completions、openai-responses、anthropic-messages。Runtime>=0.3.1由工具协议选择厂商已确认入口，不要求与DSH默认调用协议相同，不让AI选择协议：DeepSeek官方连接支持工具选三种入口，OpenAI官方支持Chat／Responses；自定义代理保留原地址，未登记其他入口时明确报错，不猜URL或转换正文。模型和思考强度由上层指定，apiKey为临时令牌，真实Key仅由Runtime读取。旧model.call、进度、产物和取消接口保持。完整例子见SDK README 4.10。
+
+新请求记录在任务logs/model-calls/<requestId>.json，详情经认证getModelCall读取，不能猜公开文件URL。网关支持三种POST和SSE，不含上传、模型列表、Responses查询／删除或后台任务轮询；扩展字段按协议转发，能力由模型决定。Python可保留客户端但只能持有任务临时连接，详见[Python适配](python-adapter.md)。
+
+## 用户配置接入
+
+以下为当前DSH 0.2.1-alpha.2的原生机制，其他宿主版本先核对实际接口；这是插件配置能力，不是Run SDK导出的方法。
+
+- Host通过插件`Config`声明字段、默认值和后端校验。提供自定义配置表单时，通过`ctx.settings.configure({auto:false}, ownerFiber)`登记展示策略，并随插件生命周期清理，避免重复生成通用配置页。
+- Client声明原生`dsh-client-ui-settings`、`dsh-client-ui-plugin-manager`及locale依赖，用`ctx.configForms.get(实际插件条目ID)`取得读取、订阅与保存控制器。条目ID来自实际patch，不能照抄Runtime的`sf-runtime`作为其他插件ID。
+- 在`plugins.bundle.config`挂载表单，key使用实际插件包名。保存调用控制器`mutate(ops, expectedRevision)`，显示字段说明、默认值、保存／放弃修改及明确错误；沿用宿主认证、写入权限和版本冲突检查。
+- 需要保存后无需重启时，Config使用`volatile()`，业务每次启动通过`.get()`固定本任务快照；不能让编辑影响正在运行的算法。界面可显示秒／分钟，保存前换算成后端单位并校验。
+- DSH负责将普通配置持久化到当前profile；插件不另写一个绕过宿主的配置文件接口。真实模型Key仍使用DSH原生凭据服务，不放普通表单状态或日志中。
+
+参考Runtime包的`client.js`、`src/config.ts`、`src/index.ts`和README；SDK交付包的README也说明了字段与入口。交付前做一次简单的读取、保存及生效检查。原生配置能力缺失时如实说明，再提供`.env`等备用方法，不把备用方法当默认上手流程。
+
 以下是接口摘要，使用前仍需与目标 SDK 类型核对：
 
 ```ts

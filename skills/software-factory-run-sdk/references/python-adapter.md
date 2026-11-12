@@ -6,7 +6,7 @@
 
 先查原代码实际发送给模型的内容，不只看类名是否带 Memory。Req 的原类会累积 memory，但部分实际请求仅发 system + 当前 prompt；迁移时把全部 memory 发给新模型会改变语义。反过来，原项目确实多轮时也不能随意丢掉历史。
 
-Python 不持有 API Key，不继续独立连接厂商。移除/替换硬编码模型、地址及直接网络客户端；模型调用统一转给 TS 的 `execution.model.call()`。不要把“模型报错文本”作为实体、用例或章节继续传播。
+Python不持有真实厂商API Key。旧桥接可继续把请求转给TS的execution.model.call。SDK／Runtime>=0.3.0也可保留原有OpenAI／Anthropic客户端：TS取得getConnection的baseUrl、临时apiKey、model，通过受管Python的stdin传入，不写命令行、永久.env、日志或结果。取消由TS停止并等待子进程退出。模型须匹配上层选择，协议由工具声明；Runtime>=0.3.1负责选择厂商对应入口，不能要求AI更换协议。Python只连接任务网关，不直连厂商或覆盖上层思考强度，不能把模型报错文本当成正常业务结果。
 
 ## 通信选择
 
@@ -73,7 +73,7 @@ Python 3.12 的该 Windows 分支会在 PermissionError 且目录被判断存在
 
 根据源码和依赖元数据确认最低 Python 版本，不把 Req 的 Python 3.12、pandas/docx 锁定版本当成其他项目的要求。
 
-- 初版通常使用服务端安装的 Python＋插件独立 venv＋锁定依赖，解释器路径作为宿主配置。任务运行时不临时 pip install，不依赖全局包。
+- 初版通常使用服务端安装的 Python＋插件独立 venv＋锁定依赖，解释器路径通过插件详情页的原生可视化表单配置并保存，接入见[用户配置接入](run-contract.md#用户配置接入)。任务运行时不临时 pip install，不依赖全局包。
 - 检查无用 Gradio、OpenAI 客户端、平台 UI 启动器能否移除；保留算法确实需要的原生依赖及跨平台限制。
 - 环境探测只返回可公开的版本、依赖和可用状态；不读取或输出 `.env`、credentials.json、认证头等。
 - `.venv` 不跟插件发布，不在 Windows/Linux 间复制。Linux 重新建 venv，解释器通常是 bin/python；Windows 通常是 Scripts/python.exe。

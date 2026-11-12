@@ -1,8 +1,14 @@
 # 软件工厂 Run TypeScript SDK
 
-适用：Runtime SDK 0.2.0、DSH 0.2.1-alpha.2、Node.js 24+。
+适用：Runtime SDK 0.3.0、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
+
+## 0.3.0 更新说明
+
+- 新增 `execution.model.getConnection({protocol})`，取得本次任务的网关地址、临时凭证和上层指定模型，可复用现有 OpenAI／Anthropic 客户端。
+- 只支持 Chat Completions、Responses、Messages 三种协议的同协议转发。JSON 输出、采样等字段按原协议传递；模型和思考强度由上层固定，真实 API Key 留在 Runtime。
+- 保留旧 `model.call()`、进度和产物接口；请求记录归入任务工作区，配套卡片可展开查看，不再创建逐次侧栏聊天。
 
 ## 0.2.0 更新说明
 
@@ -57,10 +63,10 @@ my-plugin/
 
 ## 2. 导入 SDK
 
-先取得平台交付的 `software-factory-runtime-sdk-0.2.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
+先取得平台交付的 `software-factory-runtime-sdk-0.3.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
 
 ```powershell
-npm.cmd install ./vendor/software-factory-runtime-sdk-0.2.0.tgz
+npm.cmd install ./vendor/software-factory-runtime-sdk-0.3.0.tgz
 ```
 
 也可取得SDK ZIP，解压后将**包含package.json及lib的已构建SDK目录**作为本地依赖安装。Git源码ZIP与预编译SDK包不同；只含src的未构建源码不能替代上述TGZ。SDK不假定已发布到公共npm。
@@ -73,7 +79,7 @@ npm.cmd install ./vendor/software-factory-runtime-sdk-0.2.0.tgz
 ```
 
 ```powershell
-npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.2.0"
+npm.cmd install "@software-factory/runtime-sdk@npm:@waller-man/software-factory-runtime-sdk@0.3.0"
 ```
 
 需要能够读取该私有包的GitHub认证；没有相应认证时使用Release TGZ安装。GitHub包与TGZ的SDK实现相同，区别是注册名称和发布元数据；下面的import不变。
@@ -409,13 +415,103 @@ for (const item of 待处理数据) {
 
 只清理自己创建的资源。耗时算法应定期检查 signal；持续占用线程的同步计算需要分段或放进可停止的工作线程／子进程。
 
+### 4.10 model.getConnection({ protocol })：复用现有模型客户端
+
+适用于已有 OpenAI／Anthropic API 调用、需要 JSON 格式或更多原生参数的算法。旧 `model.call()` 保持原来的严格字段，不把 `response_format`、`top_k` 等硬塞进旧接口。
+
+| 输入 protocol | 客户端用法 | 返回 baseUrl |
+| --- | --- | --- |
+| `openai-completions` | `client.chat.completions.create()` | 包含 `/sf-runtime/model/v1` |
+| `openai-responses` | `client.responses.create()` | 包含 `/sf-runtime/model/v1` |
+| `anthropic-messages` | `client.messages.create()` | 包含 `/sf-runtime/model`，客户端自动加 `/v1/messages` |
+
+返回 `Promise<{baseUrl, apiKey, model, protocol}>`。`apiKey` 是临时任务令牌，不是真实厂商 Key；只交给本任务后端客户端，不能写日志、业务结果、README 或永久配置。完成、失败、取消、停用后失效，重启不恢复。
+
+**插件登记时声明所用协议**，方便编排确认时提前检查。已有 `model.call()` 插件不必增加此字段：
+
+```ts
+registerRunTool(ctx, {
+  toolId: '你的实际Tool名称', description: '你的业务说明', inputSchema: 真实输入规格,
+  modelProtocols: ['openai-completions'],
+  execute: 你的业务函数
+});
+```
+
+协议由业务工具声明，AI／用户只选择服务商、模型和思考强度。Runtime 0.3.1不再要求协议与DSH自己的调用协议一致：即使deepseek-official默认使用Messages，工具仍可请求openai-completions，Runtime复用其凭据，直接访问DeepSeek官方Chat Completions入口。官方DeepSeek支持三种已确认入口，官方OpenAI支持Chat／Responses；自定义反代保留原地址，不自动猜测其他入口。业务声明多个协议意味着你实现了相应客户端分支，Runtime不转换正文。现有SDK调用和插件源码无需改写，更新Runtime即可取得此修复。
+
+**TS：沿用 OpenAI 客户端，只替换连接与模型**。业务算法继续用伪代码表示；新增依赖 `openai` 在开发／部署阶段安装并锁定版本，SDK 本身不替业务插件安装它。
+
+```ts
+import OpenAI from 'openai';
+const connection = await execution.model.getConnection({ protocol: 'openai-completions' });
+const client = new OpenAI({
+  baseURL: connection.baseUrl, apiKey: connection.apiKey,
+  maxRetries: 0, timeout: 480000
+});
+const answer = await client.chat.completions.create({
+  model: connection.model,
+  messages: [{ role: 'user', content: '请以 JSON 返回需求要点：' + input.text }],
+  response_format: { type: 'json_object' },
+  temperature: 0.2
+}, { signal: execution.signal });
+const data = JSON.parse(answer.choices[0].message.content ?? '');
+return 根据模型结果生成并登记产物(data);
+```
+
+选择 Responses 时取得 `protocol: 'openai-responses'` 的连接，用同样的客户端配置调用：
+
+```ts
+const answer = await client.responses.create({
+  model: connection.model, input: '请以 JSON 返回需求要点：' + input.text,
+  text: { format: { type: 'json_object' } }
+}, { signal: execution.signal });
+const data = JSON.parse(answer.output_text);
+```
+
+两种 JSON 参数位置依据 [OpenAI 官方结构化输出说明](https://developers.openai.com/api/docs/guides/structured-outputs)。具体模型是否支持 JSON Schema、JSON mode、温度或其他参数，应按所选服务商确认；转发不等于保证模型能力。
+
+使用 Messages 的业务可安装 `@anthropic-ai/sdk`，取得对应连接后：
+
+```ts
+import Anthropic from '@anthropic-ai/sdk';
+const connection = await execution.model.getConnection({ protocol: 'anthropic-messages' });
+const client = new Anthropic({ baseURL: connection.baseUrl, apiKey: connection.apiKey, maxRetries: 0 });
+const answer = await client.messages.create({
+  model: connection.model, max_tokens: 32768,
+  messages: [{ role: 'user', content: input.text }]
+}, { signal: execution.signal });
+const data = 按原算法处理Messages回答(answer);
+```
+
+输出限制由算法设置；旧版 Claude 的预算式思考需要 `max_tokens` 大于上层强度对应的预算。不要在下层另设模型、`thinking`、`reasoning_effort` 或 `reasoning.effort` 来覆盖上层；一致值可保留，冲突时报错。其他字段原样转发，例如厂商支持的 `top_k`；TS 客户端类型未开放时可使用 `fetch` 按该协议发送 JSON。`stream:true` 按原 SSE 格式返回。
+
+**Python：保留已有客户端也可以**。TS 在任务内取得 connection，通过已托管 Python 的 stdin 启动消息发送 `modelConnection`；不是命令行参数，也不是用户的 `.env`。Python 需预装并锁定 `openai` 或 `anthropic`，例如 OpenAI 分支：
+
+```python
+# 伪代码：start 是原有桥接器读取的任务启动消息。
+from openai import OpenAI
+c = start['modelConnection']
+client = OpenAI(base_url=c['baseUrl'], api_key=c['apiKey'], max_retries=0, timeout=480)
+answer = client.chat.completions.create(
+    model=c['model'],
+    messages=[{'role': 'user', 'content': '请返回 JSON：' + start['input']['text']}],
+    response_format={'type': 'json_object'},
+    temperature=0.2,
+)
+result = 按原算法继续处理(answer.choices[0].message.content)
+```
+
+不要打印完整 start 或 connection；Python stdout 仍遵守你的进度／产物协议。TS 继续负责取消并等待子进程退出。已有 Python→TS→`model.call()` 桥接可以完全不改。
+
+**范围**：网关只开放这三个 POST 端点，复用 DSH API Key 连接及模型目录；不支持账号授权转换、协议互转、Files 上传、模型列表、Responses 查询／删除或后台任务轮询。图片／历史内容按所用协议和模型能力传递；厂商文件 ID 的上传与生命周期仍由业务另外处理。默认单次模型调用8分钟、整体任务1小时，可在Runtime插件详情页可视化修改；保存用于新任务，运行中任务保留原时限。客户端示例超时与当前8分钟默认值对应，自定义时需一并留意客户端限制。HTTP请求／响应各限64MiB；网关不自动重试。记录存入`execution.outputDirectory/logs/model-calls/<requestId>.json`，卡片按需读取详情，内联图片数据省略。
+
 ## 5. 上层接口：如何传参启动和查看任务
 
 下层是你的函数向 Run 上报；上层是网页、编排或其他调用者向 Run 发起请求。上层接口**不是从本 SDK 导入的 JS 函数**。
 
 | 用途 | DSH Tool／Remote | request 输入 | data 输出 |
 | --- | --- | --- | --- |
-| 查看输入规格 | sf_runtime_get_tool_contract／getToolContract | `{toolId}` | toolId、description、inputSchema、supportsRun |
+| 查看输入规格 | sf_runtime_get_tool_contract／getToolContract | `{toolId,model?}` | toolId、description、inputSchema、supportsRun、modelProtocols?；有model时预检协议 |
 | 启动 | sf_runtime_run_tool／runTool | `{toolId,input,model?,timeoutMs?}` | `{runId,status:'queued'}` |
 | 查询 | sf_runtime_get_run／getRun | `{runId}` | 状态、阶段、进度、logs、issues、artifacts、result、lastSeq 等 |
 | 列表 | sf_runtime_list_runs／listRuns | `{toolId?,status?,limit?,offset?}` | `{items,total}` |
@@ -423,6 +519,8 @@ for (const item of 待处理数据) {
 | 取消 | sf_runtime_cancel_run／cancelRun | `{runId}` | `{runId,status}` |
 | 持续订阅 | 仅 Remote：watchRun | `{runId,afterSeq?}` | RunEvent 流：runId、seq、type、data、time |
 | 获取文件 | sf_runtime_get_artifact／getArtifact | `{runId,artifactId}` | 文件元数据和认证 downloadUrl |
+| 模型请求列表 | 仅 Remote：listModelCalls | `{runId}` | 请求摘要数组 |
+| 模型请求详情 | 仅 Remote：getModelCall | `{runId,requestId}` | 请求、响应及状态详情 |
 
 服务返回 `{ok:true,data}` 或 `{ok:false,error:{code,message}}`。Remote 使用已有 DSH 认证连接、sfRuntime 命名空间及真实 runtimeSessionId，外层还有标准 RemoteResult；接线见 [接口规范](docs/runtime-api.md)。不要自行假定存在公共 HTTP 地址。
 
@@ -434,7 +532,7 @@ const accepted = await 调用DSHTool('sf_runtime_run_tool', {
   toolId: 'sf_your_tool',
   input: { text: '一段示例输入' }
   // 可选：model: { provider: 实际providerID, model: 实际modelID }
-  // 可选：timeoutMs: 120000
+  // 可选：timeoutMs: 3600000（显式指定本任务为1小时）
 });
 检查服务返回ok(accepted);
 const runId = accepted.data.runId;
@@ -499,6 +597,7 @@ node --inspect-brk --experimental-strip-types scripts/debug.ts
 
 - **代码与异常**：本地断点、DSH服务端终端。
 - **进度与报错**：getRun返回的阶段、data.logs和data.issues。
+- **模型往返**：卡片展开“模型请求记录”，或查看任务目录 `logs/model-calls/<requestId>.json`；不要打印临时连接对象。
 - **输入与文件**：`<workspace>/outputs/runs/<runId>/`，其中input/request.json是原始输入，run.json是状态记录，intermediate／snapshots／final保存材料。
 
 ### 6.4 常见问题与解决方案
@@ -585,8 +684,10 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 验收重点：真实input与inputSchema一致；通过正常Run链执行；最终文件先保存再登记并返回artifactId；阶段与百分比来自真实处理；model按需使用；错误不能伪装成成功；signal与清理回调能停止自己的任务。
 
 交付物不得包含API Key、数据库密码、真实用户任务材料或本机专用路径。Python等依赖在部署准备阶段安装，不在每次运行任务时自动pip install。业务插件启用不自动写HugeGraph。
-
+**需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。确实无法通过界面配置时，再使用 `.env`，并说明填写方法。**
 ## 9. 开发者交付的业务 README 要写什么
+
+**需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。确实无法通过界面配置时，再使用 `.env`，并说明填写方法。** 可参考Runtime插件详情页：通过settings／configForms保存配置并挂到plugins.bundle.config，沿用宿主权限和持久化，不另造配置文件写入接口。
 
 下面是**你的业务插件README**至少要回答的问题，不是要求再次复制SDK全部手册：
 
