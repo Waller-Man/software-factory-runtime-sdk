@@ -19,6 +19,8 @@ SDK README 的占位业务函数、调试上下文创建器、调用 DSH Tool �
 
 ## 已核对的 SDK 形状
 
+新开发优先使用execution.model.getConnection取得任务网关连接，沿用OpenAI／Anthropic客户端。旧model.call及Python桥接保留兼容，账号登录等网关不支持的连接按宿主适配能力使用旧接口。SDK 0.4.1只修订文档，未改变0.4.0接口。
+
 0.4.0追加execution.interaction.ask，三种请求及返回按SDK README 4.11。依次await问题，等待不消耗任务执行预算，取消／超时抛错；不要把回答实现成模型Tool、自动默认答案或Python自行调用网页接口。主聊天来源由Host绑定，用户操作使用网页授权，任务模型凭证无回答权限。run.json保存问题和答案，重启不恢复调用栈。
 
 0.3.0追加能力：`registerRunTool`可声明`modelProtocols`数组；`execution.model.getConnection({protocol})`返回`{baseUrl,apiKey,model,protocol}`。仅接收openai-completions、openai-responses、anthropic-messages。Runtime>=0.3.1由工具协议选择厂商已确认入口，不要求与DSH默认调用协议相同，不让AI选择协议：DeepSeek官方连接支持工具选三种入口，OpenAI官方支持Chat／Responses；自定义代理保留原地址，未登记其他入口时明确报错，不猜URL或转换正文。模型和思考强度由上层指定，apiKey为临时令牌，真实Key仅由Runtime读取。旧model.call、进度、产物和取消接口保持。完整例子见SDK README 4.10。
@@ -31,11 +33,12 @@ SDK README 的占位业务函数、调试上下文创建器、调用 DSH Tool �
 
 - Host通过插件`Config`声明字段、默认值和后端校验。提供自定义配置表单时，通过`ctx.settings.configure({auto:false}, ownerFiber)`登记展示策略，并随插件生命周期清理，避免重复生成通用配置页。
 - Client声明原生`dsh-client-ui-settings`、`dsh-client-ui-plugin-manager`及locale依赖，用`ctx.configForms.get(实际插件条目ID)`取得读取、订阅与保存控制器。条目ID来自实际patch，不能照抄Runtime的`sf-runtime`作为其他插件ID。
-- 在`plugins.bundle.config`挂载表单，key使用实际插件包名。保存调用控制器`mutate(ops, expectedRevision)`，显示字段说明、默认值、保存／放弃修改及明确错误；沿用宿主认证、写入权限和版本冲突检查。
+- 自定义表单统一挂到组件内部的`plugins.row.config`，key严格使用`<实际Bundle包名>#<patch中的组件rowId>`，例如`@example/my-bundle#my-worker`。这样在“包含的组件”中点击对应条目进入配置页，各条目独立管理；不将用户配置仅挂到原包外层的`plugins.bundle.config`。合入新Bundle时用新包名和实际rowId登记该入口，复用同一表单，不能假设旧key会自动匹配新Bundle。
+- 处理宿主传入的`view:'page'`／`view:'summary'`，在页面视图显示表单。保存调用对应条目控制器的`mutate(ops, expectedRevision)`，提供字段说明、默认值、保存／放弃修改及明确错误；沿用宿主认证、写入权限和版本冲突检查。包名、rowId和配置控制器必须指向同一个实际条目，不绑定开发者本机profile或其他组件。
 - 需要保存后无需重启时，Config使用`volatile()`，业务每次启动通过`.get()`固定本任务快照；不能让编辑影响正在运行的算法。界面可显示秒／分钟，保存前换算成后端单位并校验。
 - DSH负责将普通配置持久化到当前profile；插件不另写一个绕过宿主的配置文件接口。真实模型Key仍使用DSH原生凭据服务，不放普通表单状态或日志中。
 
-参考Runtime包的`client.js`、`src/config.ts`、`src/index.ts`和README；SDK交付包的README也说明了字段与入口。交付前做一次简单的读取、保存及生效检查。原生配置能力缺失时如实说明，再提供`.env`等备用方法，不把备用方法当默认上手流程。
+Runtime 0.4.1的`src/config.ts`、`src/index.ts`及`client.js`可参考字段、保存、任务快照与组件内挂载机制；实际Bundle包名和rowId必须按目标项目填写。交付前简单检查组件配置页能打开、读取、保存及生效，兄弟组件配置不受影响；组合Bundle时核对实际挂载key。用户无需手改`.env`或配置文件，原生能力缺失时报告限制，不静默改用文件配置。开发与启动脚本尽量兼容Linux，不以文档规则宣称已通过Linux验证。
 
 以下是接口摘要，使用前仍需与目标 SDK 类型核对：
 
@@ -60,7 +63,8 @@ registerRunTool(ctx, {
 | `addArtifact({kind,name,relativePath,mime})` | 登记已存在的文件，不负责生成/复制，返回 Artifact |
 | `registerCleanup(callback)` | 仅登记自有资源清理；停止并等待，不只发送一个信号 |
 | `execution.model.selection` | 任务固定的模型引用，可能为空；不从业务输入接受凭据 |
-| `execution.model.call({messages})` | 返回 `{text,usage?}`，具体请求与错误以实际类型为准 |
+| `execution.model.getConnection({protocol})` | 新开发首选；返回任务的 `{baseUrl,apiKey,model,protocol}`，apiKey 为临时令牌 |
+| `execution.model.call({messages})` | 兼容接口，返回 `{text,usage?}`，具体请求与错误以实际类型为准 |
 
 插件启用时登记、停用时撤销，由 SDK/Cordis 的生命周期托管。依赖至少包含实际需要的 tools 和 sfRuntime；Python 适配按实现增加 subprocess、sandboxPolicy 等，不为不存在的能力写 inject。
 

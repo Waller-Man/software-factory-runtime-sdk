@@ -1,8 +1,16 @@
 # 软件工厂 Run TypeScript SDK
 
-适用：Runtime SDK 0.4.0、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
+**新开发的业务插件优先使用 `execution.model.getConnection({protocol})`，通过 Runtime 网关调用模型，复用现有 OpenAI／Anthropic 客户端。`execution.model.call()` 保留兼容旧插件；账号登录等网关暂不支持的连接，仍按宿主适配能力使用旧接口。真实 API Key 不交给业务插件。** 用法见 [4.10 模型网关](#410-modelgetconnection-protocol-复用现有模型客户端)。
+
+适用：Runtime SDK 0.4.1、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
+
+## 0.4.1 更新说明
+
+- 文档统一推荐新开发优先使用模型网关，补齐 Python 接入说明；旧 `model.call()` 继续兼容。
+- 用户配置放在 DSH 对应组件内部的原生配置页，避免要求用户手改 `.env`；补充 Bundle 组合与尽量兼容 Linux 的要求。
+- 本次为文档修订与重新打包，SDK 接口和实现不变。
 
 ## 0.4.0 更新说明
 
@@ -63,16 +71,15 @@ my-plugin/
 ├── python/              # 可选：已有 Python 算法
 ├── vendor/              # 平台交付的 SDK TGZ
 ├── agent-registration.json # 交给平台的Agent与版本入库资料
-├── .env.example         # 仅在业务需要时提供无凭据的配置模板
 └── README.md            # 本业务的安装、调用、依赖和登记资料说明
 ```
 
 ## 2. 导入 SDK
 
-先取得平台交付的 `software-factory-runtime-sdk-0.4.0.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
+先取得平台交付的 `software-factory-runtime-sdk-0.4.1.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
 
 ```powershell
-npm.cmd install ./vendor/software-factory-runtime-sdk-0.4.0.tgz
+npm.cmd install ./vendor/software-factory-runtime-sdk-0.4.1.tgz
 ```
 
 也可取得SDK ZIP，解压后将**包含package.json及lib的已构建SDK目录**作为本地依赖安装。Git源码ZIP与预编译SDK包不同；只含src的未构建源码不能替代上述TGZ。SDK不假定已发布到公共npm。
@@ -123,10 +130,13 @@ async function runBusiness(input, execution): Promise<BusinessResult> {
 
   // 可选：只有算法确实需要时才调用模型。
   if (业务需要模型) {
-    const answer = await execution.model.call({
+    const connection = await execution.model.getConnection({ protocol: 'openai-completions' });
+    const client = 创建OpenAI客户端(connection); // 自行实现，完整连接配置见 4.10。
+    const answer = await client.chat.completions.create({
+      model: connection.model,
       messages: [{ role: 'user', content: 待处理文本 }]
-    });
-    result = 根据模型回答继续处理(result, answer.text);
+    }, { signal: execution.signal });
+    result = 根据模型回答继续处理(result, answer.choices[0].message.content);
   }
 
   execution.signal.throwIfAborted();
@@ -146,7 +156,7 @@ async function runBusiness(input, execution): Promise<BusinessResult> {
 }
 ```
 
-只交付文本时返回 `{text:结果文本}`；只交付文件时返回 `{files:[file.artifactId]}`。不要求每个业务都生成示例中的文件或使用模型。至少交付非空文本或一个文件。
+只交付文本时返回 `{text:结果文本}`；只交付文件时返回 `{files:[file.artifactId]}`。不要求每个业务都生成示例中的文件或使用模型。至少交付非空文本或一个文件。使用上述模型分支时，在登记入口声明 `modelProtocols: ['openai-completions']`，详见 4.10；`创建OpenAI客户端` 不是 SDK 导出方法。
 
 ### 3.2 插件启用时登记业务入口
 
@@ -321,6 +331,8 @@ addArtifact 不生成或复制文件；最终返回的是已登记的 final 文�
 
 ### 4.8 model.call(request)
 
+这是保留给旧插件及宿主适配器连接的兼容接口；新开发优先使用 [4.10 模型网关](#410-modelgetconnection-protocol-复用现有模型客户端)。已有调用无需为本次文档更新而迁移。
+
 用途：调用本次任务固定的 DSH 模型。返回 `Promise<{text,usage?}>`。
 
 | 字段 | 必填 | 说明 |
@@ -423,7 +435,7 @@ for (const item of 待处理数据) {
 
 ### 4.10 model.getConnection({ protocol })：复用现有模型客户端
 
-适用于已有 OpenAI／Anthropic API 调用、需要 JSON 格式或更多原生参数的算法。旧 `model.call()` 保持原来的严格字段，不把 `response_format`、`top_k` 等硬塞进旧接口。
+**新开发需要模型时优先使用此接口**，沿用 OpenAI／Anthropic 客户端，通过 Runtime 网关发送原协议请求，包括模型支持的 JSON 格式与采样参数。仅适用于网关支持的 API Key 连接；账号登录等连接仍按宿主能力使用旧 `model.call()`。旧接口保持原来的严格字段，不把 `response_format`、`top_k` 等硬塞进去。
 
 | 输入 protocol | 客户端用法 | 返回 baseUrl |
 | --- | --- | --- |
@@ -710,9 +722,9 @@ async function runPythonBusiness(input, execution) {
 
 “启动Python算法”等由开发者的适配层实现，SDK 没有内置通用 Python 桥。简单调用可采用 JSON 输入输出；需要逐步进度时再约定消息格式，算法日志与结果应能区分。
 
-Python 依赖在部署准备阶段安装，运行任务时不自动安装。调试顺序为：单独调 Python 函数 → 验证输入输出 → 用 TS 调试入口调用 → 在 DSH 网页调用。需要模型时优先由 TS 使用 model.call，将必要结果传给 Python，不传模型 API Key。
+Python 依赖在部署准备阶段安装，运行任务时不自动安装。调试顺序为：单独调 Python 函数 → 验证输入输出 → 用 TS 调试入口调用 → 在 DSH 网页调用。新开发需要模型时，优先由 TS 使用 `model.getConnection({protocol})`，通过受管进程的 stdin 把任务临时连接传给 Python，保留其 OpenAI／Anthropic 客户端；完整示例见 4.10。真实厂商 API Key 不传入 Python，临时连接不写日志或永久配置。
 
-已有算法的分阶段temperature、maxTokens、stop也应经Python消息传给TS，再传入model.call；只记入快照不会生效。Python若使用max_tokens，由桥接层映射成maxTokens。只转发算法实际提供的字段，按undefined判断，不要用真假判断丢掉temperature=0；不要为省事给旧算法统一填默认值。
+已有 Python→TS→`model.call()` 桥接继续兼容，网关不支持的连接也可按宿主能力使用这一路径。此旧桥接中，分阶段 temperature、maxTokens、stop 经 Python 消息传给 TS，再传入 model.call；Python 的 max_tokens 映射成 maxTokens。网关客户端则沿用所选协议的原生字段，不做此命名转换。两条路径都保留算法实际提供的参数与历史，只记入快照不会生效；按 undefined 判断，不丢掉 temperature=0，不统一补默认值。
 
 ## 8. 开发者应当交付什么
 
@@ -731,10 +743,10 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 
 **业务插件应尽可能兼容 Linux，为后续部署到服务器做准备。** 路径使用跨平台 API，注意 Linux 文件名大小写；不要写死 Windows 盘符、反斜杠、`.exe` 或 PowerShell／CMD 命令。Python、Java 等程序通过可配置路径或系统 PATH 查找，虚拟环境区分 Windows 的 `Scripts/` 与 Linux 的 `bin/`，不随包复制本机虚拟环境。依赖优先选择支持 Linux 的版本，业务 README 应说明 Linux 的依赖安装与启动方式、已验证环境及尚存限制；仅在 Windows 验证时明确标注，不宣称已支持 Linux。
 
-**需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。确实无法通过界面配置时，再使用 `.env`，并说明填写方法。**
+**用户配置统一放在 DSH 对应组件内部的原生配置页：从“插件 → 插件包 → 包含的组件”点击具体组件，填写、保存并持久化，各组件独立管理。独立安装与合入 Bundle 均采用此入口，不要求用户手改 `.env` 或 JSON／YAML 等配置文件。开发过程尽量兼容 Linux。**
 ## 9. 开发者交付的业务 README 要写什么
 
-**需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。确实无法通过界面配置时，再使用 `.env`，并说明填写方法。** 可参考Runtime插件详情页：通过settings／configForms保存配置并挂到plugins.bundle.config，沿用宿主权限和持久化，不另造配置文件写入接口。
+**用户配置统一放在对应组件内部的原生配置页，各组件独立保存，方便后续组合成 Bundle；不要求用户手改 `.env` 或配置文件，开发过程尽量兼容 Linux。** Host使用`Config`声明字段，Client通过`settings／configForms`读取和保存；自定义表单挂到`plugins.row.config`，key为`<实际Bundle包名>#<patch中的组件rowId>`。合入新Bundle时按新的包名和实际rowId登记入口，复用同一表单；不要把配置写死到原包的外层页面。详细接入见[用户配置接入](skills/software-factory-run-sdk/references/run-contract.md#用户配置接入)。
 
 下面是**你的业务插件README**至少要回答的问题，不是要求再次复制SDK全部手册：
 
@@ -750,7 +762,7 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 | 入库资料 | 逻辑Agent与版本资料、真实dsh_ref、八类字段、论文／测试来源，未知项明确省略 |
 | 更新与验证范围 | 插件包版本与业务版本，升级／重启方式；本地调试、模拟、真实工作区、真实模型分别验证了什么 |
 
-写出可以照着执行的命令和业务请求，避免只写“安装依赖后运行”。若没有独立网页或启动服务，不要编造npm start。模型服务配置沿用DSH；其他配置仅给无凭据模板和真实用途。
+写出可以照着执行的命令和业务请求，避免只写“安装依赖后运行”。若没有独立网页或启动服务，不要编造npm start。模型服务配置沿用DSH；其他用户配置说明组件内的表单入口、字段用途和默认值，不交付要求用户手填的配置文件模板。
 
 ## 10. Agent入库资料：八大类、19项字段
 

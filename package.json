@@ -1,6 +1,6 @@
 {
   "name": "@software-factory/runtime-sdk",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "TypeScript SDK for software factory Run business tools",
   "repository": {

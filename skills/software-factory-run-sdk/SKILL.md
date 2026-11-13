@@ -5,6 +5,8 @@ description: "使用软件工厂 Run SDK，将已有 Python、TypeScript 等算�
 
 # 软件工厂 Run SDK 业务插件接入
 
+**新开发的业务插件优先使用 `execution.model.getConnection({protocol})`，通过 Runtime 网关调用模型，复用现有 OpenAI／Anthropic 客户端。`execution.model.call()` 保留兼容旧插件；账号登录等网关暂不支持的连接，仍按宿主适配能力使用旧接口。真实 API Key 不交给业务插件。** 协议与连接规则见 [run-contract.md](references/run-contract.md)，Python 接入见 [python-adapter.md](references/python-adapter.md)。
+
 把已有算法接入 Run 的正常执行链，交付能安装到 DSH 的后端插件。Python 项目通常保留 Python，以 TypeScript 承担 SDK、模型、进程和产物适配。不为内部每个算法模块分别创建插件或数据库 Agent。
 
 本 Skill 来自 ReqCompleter 的实际改造经验，不是一套固定版本的 SDK 文档。先读取目标项目实际提供的 README、SDK 包和宿主实现；不要把本项目的目录、依赖、工具名、进度权重和权限选择复制成通用标准。
@@ -29,7 +31,7 @@ DSH 网页/聊天
   → Run 正常启动接口
   → registerRunTool 注册的 TS 业务入口
   → 受管 Python 子进程/已有后端
-  ↔ TS 中的 execution.model.call()
+  ↔ Runtime 模型网关（getConnection 取得任务临时连接）
   → Run 目录、进度、问题、产物 ID
 ```
 
@@ -60,11 +62,11 @@ DSH 网页/聊天
 - 要求强制文件隔离时，使用实际宿主沙箱并验证其授权。失败后不要静默去掉 `confine()`、提权或改 ACL。若仅改业务插件不能满足，报告缺口。
 - 不把某次“权限拒绝”直接归咎于宿主；也不把另一个未使用沙箱的插件能运行当作沙箱已验证。
 
-### 用户配置优先提供原生表单
+### 用户配置统一放在组件内部
 
-**需要用户填写的配置，应优先提供 DSH 原生可视化表单，让用户在插件页面填写并保存；不要求用户手动修改配置文件。** 程序路径、启动等待时间等配置按此方式交付；确实无法通过界面配置时，再使用`.env`，说明限制、填写位置和生效方式。模型真实凭据继续由DSH原生凭据服务管理。
+**用户配置统一放在 DSH 对应组件内部的原生配置页，通过“插件 → 插件包 → 包含的组件”进入，填写、保存并持久化，各组件独立管理。** 独立安装或合入其他Bundle都采用此入口，不将表单仅挂在原包外层。程序路径、启动等待时间等通过表单提供，不要求用户手改`.env`、JSON或YAML。模型真实凭据继续由DSH原生凭据服务管理。
 
-原生服务与挂载方式见[Run协议中的用户配置接入](references/run-contract.md#用户配置接入)。业务README须说明页面入口、字段含义、默认值及保存后的生效范围；不要仅交付需要用户手改的YAML或`.env`模板。
+原生服务与`plugins.row.config`挂载方式见[Run协议中的用户配置接入](references/run-contract.md#用户配置接入)。合入新Bundle时按其实际包名和组件rowId重新登记入口，复用表单与独立配置，不假设挂载会自动迁移。业务README说明组件内的入口、字段、默认值及生效范围。宿主缺少必要能力时报告限制，不静默改成交付`.env`；开发过程尽量兼容Linux，具体要求见下节。
 
 ### 尽可能兼容 Linux 服务器
 
@@ -72,9 +74,9 @@ DSH 网页/聊天
 
 ### 复用模型，不复用主聊天历史
 
-旧项目可以继续经过 `execution.model.call()`；SDK／Runtime>=0.3.0也可用 `execution.model.getConnection({protocol})`，把任务临时连接交给原有 OpenAI／Anthropic 客户端。真实凭据留在DSH，模型和思考强度由上层指定，协议由工具声明，不让AI选择协议。Runtime>=0.3.1按厂商已确认入口路由，不要求工具协议与DSH自己的默认协议相同：DeepSeek官方连接可供工具使用OpenAI格式，仍复用相同凭据。自定义反代不能盲目替换URL；不转换正文或假定任意厂商支持全部协议。接入细节见[Run协议](references/run-contract.md)。主聊天只传明确业务输入及必要摘要，历史按原算法显式组织。
+新开发优先使用 `execution.model.getConnection({protocol})`（SDK／Runtime>=0.3.0），把任务临时连接交给 OpenAI／Anthropic 客户端。旧项目的 `execution.model.call()` 可以保持不变；账号登录等网关不支持的连接按宿主适配能力使用旧接口，不强制迁移。真实凭据留在DSH，模型和思考强度由上层指定，协议由工具声明，不让AI选择协议。Runtime>=0.3.1按厂商已确认入口路由，不要求工具协议与DSH自己的默认协议相同：DeepSeek官方连接可供工具使用OpenAI格式，仍复用相同凭据。自定义反代不能盲目替换URL；不转换正文或假定任意厂商支持全部协议。接入细节见[Run协议](references/run-contract.md)。主聊天只传明确业务输入及必要摘要，历史按原算法显式组织。
 
-目标SDK／Runtime>=0.2.0时，保留算法逐次给出的temperature、maxTokens、stop并贯通Python／TS桥接；0温度不能丢失，未提供的字段不补默认值。旧插件只传messages仍可使用新版Runtime。字段约束与提供方限制见[Run协议](references/run-contract.md)，不能仅将原参数存入快照就声称已恢复算法语义。
+保留算法逐次给出的采样／输出参数；网关使用对应协议的原生字段。继续采用旧model.call桥接时，SDK／Runtime>=0.2.0支持temperature、maxTokens、stop，须贯通Python／TS，Python的max_tokens映射成maxTokens。0温度不能丢失，未提供的字段不补默认值。旧插件只传messages仍可使用新版Runtime。字段约束与提供方限制见[Run协议](references/run-contract.md)，不能仅将原参数存入快照就声称已恢复算法语义。
 
 0.3.0不再逐次持久化DSH聊天，旧接口只使用隔离内存上下文；请求记录归入任务的logs/model-calls。更早版本应核对实际会话实现，不能把旧部署行为当成新版能力。
 

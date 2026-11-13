@@ -6,7 +6,7 @@
 
 先查原代码实际发送给模型的内容，不只看类名是否带 Memory。Req 的原类会累积 memory，但部分实际请求仅发 system + 当前 prompt；迁移时把全部 memory 发给新模型会改变语义。反过来，原项目确实多轮时也不能随意丢掉历史。
 
-Python不持有真实厂商API Key。旧桥接可继续把请求转给TS的execution.model.call。SDK／Runtime>=0.3.0也可保留原有OpenAI／Anthropic客户端：TS取得getConnection的baseUrl、临时apiKey、model，通过受管Python的stdin传入，不写命令行、永久.env、日志或结果。取消由TS停止并等待子进程退出。模型须匹配上层选择，协议由工具声明；Runtime>=0.3.1负责选择厂商对应入口，不能要求AI更换协议。Python只连接任务网关，不直连厂商或覆盖上层思考强度，不能把模型报错文本当成正常业务结果。
+Python不持有真实厂商API Key。新开发优先使用任务网关（SDK／Runtime>=0.3.0），保留OpenAI／Anthropic客户端：TS取得getConnection的baseUrl、临时apiKey、model，通过受管Python的stdin传入，不写命令行、永久.env、日志或结果。已有Python→TS→execution.model.call桥接可以保持不变；账号登录等网关不支持的连接按宿主适配能力使用旧桥接。取消由TS停止并等待子进程退出。模型须匹配上层选择，协议由工具声明；Runtime>=0.3.1负责选择厂商对应入口，不能要求AI更换协议。网关路径中Python只连接任务网关，不直连厂商或覆盖上层思考强度，不能把模型报错文本当成正常业务结果。
 
 ## 通信选择
 
@@ -16,11 +16,11 @@ Python不持有真实厂商API Key。旧桥接可继续把请求转给TS的execu
 
 | 方向 | 消息 | 必要信息 |
 |---|---|---|
-| TS → Python | start | 协议版本、runId、已验证业务输入、宿主 outputDirectory |
+| TS → Python | start | 协议版本、runId、已验证业务输入、宿主 outputDirectory；使用网关时附任务临时 modelConnection，不含真实厂商 Key |
 | Python → TS | ready/启动阶段完成 | 已接收输入且实际目录写入成功；不是仅进程存在 |
 | Python → TS | step / log | 阶段、开始/完成、轮次及有限业务日志 |
-| Python → TS | model_request | 任务内唯一 id、模块/轮次、原语义的 messages；SDK／Runtime 0.2.0起可附算法实际提供的temperature／maxTokens／stop |
-| TS → Python | model_response | 对应 id、runId、text 或结构化 error |
+| Python → TS | model_request（仅旧model.call桥接） | 任务内唯一 id、模块/轮次、原语义的 messages；SDK／Runtime 0.2.0起可附算法实际提供的temperature／maxTokens／stop |
+| TS → Python | model_response（仅旧model.call桥接） | 对应 id、runId、text 或结构化 error |
 | Python → TS | artifact / final | 任务内相对路径、可序列化结果及方法状态 |
 | 任意停止路径 | cancel / error | 标识、可读错误；取消仍需宿主终止兜底 |
 
@@ -34,7 +34,7 @@ Python不持有真实厂商API Key。旧桥接可继续把请求转给TS的execu
 
 Req 为每次模型请求只允许两条纯文本消息，这是该项目原算法约束，不应复制成所有 Python 插件的限制。需要多轮或图片的项目应按真实 SDK 类型验证 messages。
 
-接入0.2.0的采样／输出控制时，Python实际发出参数、TS校验并转发到model.call，不能只在快照保存originalTemperature。将Python的max_tokens显式映射为SDK的maxTokens；其他缺省字段省略，不统一补默认值。temperature=0必须按存在性判断保留；连续阶段0.3／0.0／0.2分别发送，避免把某阶段参数缓存成任务全局配置。旧插件不新增字段即可继续运行；第三方适配器或模型忽略参数属于单独兼容限制，不能通过私自改模型／推理强度来补偿。
+旧model.call桥接接入0.2.0采样／输出控制时，Python实际发出参数、TS校验并转发，不能只在快照保存originalTemperature；将Python的max_tokens显式映射为SDK的maxTokens。新网关路径沿用所选协议原生字段，无需经过这组model_request／model_response消息，也不做上述字段名转换。两条路径都省略未提供的参数，不统一补默认值；temperature=0必须按存在性判断保留，连续阶段0.3／0.0／0.2分别发送，避免缓存成任务全局配置。旧插件不新增字段即可继续运行；第三方适配器或模型忽略参数属于单独兼容限制，不能通过私自改模型／推理强度来补偿。
 
 ## 启动与进程生命周期
 
@@ -73,7 +73,7 @@ Python 3.12 的该 Windows 分支会在 PermissionError 且目录被判断存在
 
 根据源码和依赖元数据确认最低 Python 版本，不把 Req 的 Python 3.12、pandas/docx 锁定版本当成其他项目的要求。
 
-- 初版通常使用服务端安装的 Python＋插件独立 venv＋锁定依赖，解释器路径通过插件详情页的原生可视化表单配置并保存，接入见[用户配置接入](run-contract.md#用户配置接入)。任务运行时不临时 pip install，不依赖全局包。
+- 初版通常使用服务端安装的 Python＋插件独立 venv＋锁定依赖，解释器路径通过对应组件内部的DSH原生可视化表单配置并保存，各组件独立管理，用户不手改`.env`。接入见[用户配置接入](run-contract.md#用户配置接入)。任务运行时不临时 pip install，不依赖全局包；开发与部署脚本尽量兼容Linux。
 - 检查无用 Gradio、OpenAI 客户端、平台 UI 启动器能否移除；保留算法确实需要的原生依赖及跨平台限制。
 - 环境探测只返回可公开的版本、依赖和可用状态；不读取或输出 `.env`、credentials.json、认证头等。
 - `.venv` 不跟插件发布，不在 Windows/Linux 间复制。Linux 重新建 venv，解释器通常是 bin/python；Windows 通常是 Scripts/python.exe。
