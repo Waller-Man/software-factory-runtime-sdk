@@ -2,9 +2,16 @@
 
 **新开发的业务插件优先使用 `execution.model.getConnection({protocol})`，通过 Runtime 网关调用模型，复用现有 OpenAI／Anthropic 客户端。`execution.model.call()` 保留兼容旧插件；账号登录等网关暂不支持的连接，仍按宿主适配能力使用旧接口。真实 API Key 不交给业务插件。** 用法见 [4.10 模型网关](#410-modelgetconnection-protocol-复用现有模型客户端)。
 
-适用：Runtime SDK 0.4.1、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
+适用：Runtime SDK 0.4.2、DSH 0.2.1-alpha.2、Node.js 24+。网关基础接口需Runtime 0.3.0；工具协议选择官方入口的路由修复需Runtime 0.3.1。已有SDK 0.1／0.2插件可以继续运行。
 
 本 SDK 供第三方开发者把自己的算法接入软件工厂 Run：注册可执行的 DSH Tool，接收业务参数，统一上报进度、日志、错误和产物，并按需调用 DSH 模型。算法仍由你实现，任务管理由 Runtime 提供。
+
+**开发者应尽可能上报进度百分比 `progress`，让用户能看到任务推进；优先按已完成数量计算，或按明确的阶段权重估算。确实无法合理估算时才省略，仍须提供阶段和处理说明，不用定时器虚构进度。**
+
+## 0.4.2 更新说明
+
+- `execution.interaction.ask()` 三种模式均可带可选 `artifactIds`，让用户在回答前下载本轮审阅文件，支持一个或多个文件；目录由工具打成 ZIP 后登记。
+- 需 Runtime 0.4.2、WebUI 0.1.3；旧调用省略字段即可保持原行为。审阅文件不会自动进入最终 `result.files`。
 
 ## 0.4.1 更新说明
 
@@ -41,7 +48,7 @@
 - [常见问题与解决方案](#64-常见问题与解决方案)
 - [开发者交付清单](#8-开发者应当交付什么)
 - [业务README要求](#9-开发者交付的业务-readme-要写什么)
-- [八类入库资料与填写示例](#10-agent入库资料八大类19项字段)
+- [八类入库资料与填写示例](#10-agent入库资料八大类20项字段)
 - [交给AI工具的Skill](#11-给开发者的ai工具使用)
 
 **代码块中的业务实现均为 TS 风格伪代码，不是可以直接复制运行的完整工程。** SDK 导入路径、接口名、参数名和返回格式保持真实；“你的算法”“保存文件”“调用DSHTool”等表示需要实现或对接的步骤，不是 SDK 导出函数。
@@ -76,10 +83,10 @@ my-plugin/
 
 ## 2. 导入 SDK
 
-先取得平台交付的 `software-factory-runtime-sdk-0.4.1.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
+先取得平台交付的 `software-factory-runtime-sdk-0.4.2.tgz`，放到**你的业务插件项目**的vendor/，在该项目根目录执行：
 
 ```powershell
-npm.cmd install ./vendor/software-factory-runtime-sdk-0.4.1.tgz
+npm.cmd install ./vendor/software-factory-runtime-sdk-0.4.2.tgz
 ```
 
 也可取得SDK ZIP，解压后将**包含package.json及lib的已构建SDK目录**作为本地依赖安装。Git源码ZIP与预编译SDK包不同；只含src的未构建源码不能替代上述TGZ。SDK不假定已发布到公共npm。
@@ -250,7 +257,7 @@ await execution.reportStatus('running', '开始处理输入');
 | --- | --- | --- |
 | stage | 是 | 阶段标识，如 parse |
 | stageName | 是 | 展示名称，如“解析输入” |
-| progress | 否 | 0～100 的任务百分比 |
+| progress | 接口可选，接入时尽可能填写 | 0～100 的整体任务百分比；根据实际完成量或阶段权重计算 |
 | message | 否 | 当前处理说明 |
 
 ```ts
@@ -260,7 +267,9 @@ await execution.reportProgress({
 });
 ```
 
-不知道百分比时只报阶段和说明。
+**尽可能填写百分比，不要默认只报阶段。** 已知总量时可按“已完成数量／总数量”计算；多阶段任务先分配整体权重，避免切换阶段就从0重新计算。无法精确计数时，可以按实际阶段完成情况估算，并在message中注明“估算”。任务内百分比应保持不倒退，处理和产物准备完成后再报100。
+
+确实无法合理估算时才省略progress，同时上报stage、stageName和当前处理说明；不要通过计时器固定递增或在等待模型／用户时假装持续推进。progress仍保持可选，旧插件调用不受影响。
 
 ### 4.5 log(message, stage?)
 
@@ -533,7 +542,7 @@ result = 按原算法继续处理(answer.choices[0].message.content)
 | text | question、placeholder? | text：非空文本；不允许选项 |
 | mixed | question、options、placeholder? | value?、text?，至少一项，可以同时填写 |
 
-三种请求都可提供`detail?`和`timeoutMs?`。question必填；选项value须唯一，最多30项；文本最多16384字符。默认等待24小时，timeoutMs为1毫秒至7天的整数。模型、聊天身份和runId由Run绑定，不由业务工具填写。
+三种请求都可提供`detail?`和`timeoutMs?`；SDK／Runtime 0.4.2起还可提供`artifactIds?: string[]`。question必填；选项value须唯一，最多30项；文本最多16384字符。默认等待24小时，timeoutMs为1毫秒至7天的整数。模型、聊天身份和runId由Run绑定，不由业务工具填写。
 
 ```ts
 const answer = await execution.interaction.ask({
@@ -552,6 +561,31 @@ const supplement = await execution.interaction.ask({
 });
 使用补充信息(supplement.text); // 伪代码
 ```
+
+**让用户先下载审阅文件再回答**：工具负责生成和选择材料，先写入本次任务目录并 `await addArtifact()`，再把返回的 ID 放入提问。每次最多30个不重复的 ID，必须属于当前 Run；不填或传空数组则不显示文件区。
+
+```ts
+// 伪代码：文件已由你的算法写入 intermediate/。
+const review = await execution.addArtifact({
+  kind: 'intermediate', name: '需求审阅.md',
+  relativePath: 'intermediate/review.md', mime: 'text/markdown'
+});
+const materials = await execution.addArtifact({
+  kind: 'intermediate', name: '全部材料.zip',
+  relativePath: 'intermediate/materials.zip', mime: 'application/zip'
+});
+const confirmation = await execution.interaction.ask({
+  type: 'select', question: '请下载审阅后确认是否继续。',
+  artifactIds: [review.artifactId, materials.artifactId],
+  options: [
+    { value: 'continue', label: '确认继续' },
+    { value: 'revise', label: '需要修改' }
+  ]
+});
+按用户选择继续算法(confirmation.value); // 伪代码
+```
+
+配套 WebUI 0.1.3 在该问题下显示文件名和认证下载按钮，回答后在交互记录中保留。每轮只列该问题指定的文件，不展开所有中间材料。目录应由业务工具先压成 ZIP，SDK 不自动打包；ZIP需作为真实文件写好后再登记。不传任意下载 URL、工作区路径或真实凭据；审阅文件保持原有 kind，最终交付仍由业务返回的 `files` 指定，不自动提升为最终产物。使用 `artifactIds` 必须升级 Runtime，旧 Runtime 会拒绝这个新字段，不静默删除后重试。
 
 等待时卡片保留原阶段／进度并显示“等待用户”，不计入任务执行预算。用户提交成功后才返回，取消或等待超时抛出错误，不返回虚构答案；超时报INTERACTION_TIMEOUT。业务确认不代替DSH系统权限审批。刷新网页可继续回答，服务重启则任务中断；首版不支持文件上传、多选或重启后恢复。
 
@@ -733,13 +767,25 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 | 可安装业务插件 | 可被DSH正常安装启用的预编译目录／ZIP／TGZ；有效package.json、bundle patch、Host入口、显示元信息、算法文件和必要运行依赖 |
 | 源码与构建说明 | TS适配层、原算法／Python文件、依赖版本、构建方式；不要只给本机node_modules或绝对路径 |
 | 业务README | 面向新电脑用户的安装、环境、真实输入输出、调用示例、模型、产物、升级与排错说明，见下一节 |
-| Agent入库资料 | 逻辑Agent身份和描述、具体版本的八类字段及来源；建议单独保存agent-registration.json，并在业务README说明 |
+| Agent入库资料 | 逻辑Agent身份和描述、具体版本的八类字段及来源；有真实数据集时填写datasets_json；建议单独保存agent-registration.json，并在业务README说明 |
 | 小输入与结果说明 | 不含敏感数据的最小输入，以及应得到的文本／文件类别，不冒充真实业务效果数据 |
 | 验证记录 | 入口能否正常调用，进度／问题／产物是否可读，取消是否停止自有资源；区分模拟模型、真实模型和实际宿主验证 |
 
 验收重点：真实input与inputSchema一致；通过正常Run链执行；最终文件先保存再登记并返回artifactId；阶段与百分比来自真实处理；model按需使用；错误不能伪装成成功；signal与清理回调能停止自己的任务。
 
 交付物不得包含API Key、数据库密码、真实用户任务材料或本机专用路径。Python等依赖在部署准备阶段安装，不在每次运行任务时自动pip install。业务插件启用不自动写HugeGraph。
+
+**业务插件尽量只声明最低 DSH 宿主版本。** 在业务插件 `package.json` 的顶层 `engines.dsh` 使用 `>=最低版本`，例如：
+
+```json
+{
+  "engines": {
+    "dsh": ">=0.2.1-alpha.2"
+  }
+}
+```
+
+最低版本按插件实际使用的接口和验证结果填写。`engines.dsh` 可以省略，DSH `0.2.2-alpha.3` 届时会检查 `peerDependencies` 中的 DSH 依赖。实际使用的依赖单独声明，开发依赖和锁文件可继续固定版本。交付前用打好的插件在最低版本和计划部署的新版 DSH 上验证安装、启用和最小 Run，并在业务 README 写明实测的 DSH 与 Runtime 版本。若确认新版有不兼容的变更，按实际情况缩小声明范围。
 
 **业务插件应尽可能兼容 Linux，为后续部署到服务器做准备。** 路径使用跨平台 API，注意 Linux 文件名大小写；不要写死 Windows 盘符、反斜杠、`.exe` 或 PowerShell／CMD 命令。Python、Java 等程序通过可配置路径或系统 PATH 查找，虚拟环境区分 Windows 的 `Scripts/` 与 Linux 的 `bin/`，不随包复制本机虚拟环境。依赖优先选择支持 Linux 的版本，业务 README 应说明 Linux 的依赖安装与启动方式、已验证环境及尚存限制；仅在 Windows 验证时明确标注，不宣称已支持 Linux。
 
@@ -757,16 +803,16 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 | 新电脑快速启动 | 从哪里取得预编译包，在DSH如何安装启用，Runtime与业务插件的启用顺序，如何判断入口已就绪 |
 | 实际调用示例 | 真实toolId、参数名、类型、必填要求、最小请求；文件路径属于DSH服务端，不能把浏览器电脑路径当服务端路径 |
 | 模型选择 | 是否需要模型，继承来源会话还是显式指定，实际所需能力；不索取或硬编码模型API Key |
-| 过程、错误与取消 | 业务阶段、进度含义、常见错误、如何查询和取消；有无不易中断的业务阶段 |
+| 过程、错误与取消 | 业务阶段、百分比计算／估算规则（尽可能上报）、常见错误、如何查询和取消；有无不易中断的业务阶段 |
 | 产物与下载 | workspace/outputs/runs/runId下的final／intermediate／snapshots，最终文件类型与认证下载方式 |
 | 入库资料 | 逻辑Agent与版本资料、真实dsh_ref、八类字段、论文／测试来源，未知项明确省略 |
 | 更新与验证范围 | 插件包版本与业务版本，升级／重启方式；本地调试、模拟、真实工作区、真实模型分别验证了什么 |
 
 写出可以照着执行的命令和业务请求，避免只写“安装依赖后运行”。若没有独立网页或启动服务，不要编造npm start。模型服务配置沿用DSH；其他用户配置说明组件内的表单入口、字段用途和默认值，不交付要求用户手填的配置文件模板。
 
-## 10. Agent入库资料：八大类、19项字段
+## 10. Agent入库资料：八大类、20项字段
 
-开发者按以下维度提供资料，方便平台审核入库。**这不是registerRunTool的参数表，也不是让开发者直接调用数据库。** SDK登记的是实际执行Tool；Agent／AgentVersion资料经平台Manage人工确认后保存。当前19项是平台基线，后续以实际字段元数据为准。
+开发者按以下维度提供资料，方便平台审核入库。**这不是registerRunTool的参数表，也不是让开发者直接调用数据库。** SDK登记的是实际执行Tool；Agent／AgentVersion资料经平台Manage人工确认后保存。依据2026-11-17数据库变更记录，新增“训练与评估／数据集”，当前为八大类20项，后续以实际字段元数据为准。
 
 | 大类 | 中文字段 | 存储属性 | 填写说明 |
 | --- | --- | --- | --- |
@@ -778,6 +824,7 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 | 可执行与调用 | 调用方式 | AgentVersion.invoke_kind | 本接入示例为dsh_tool |
 | 可执行与调用 | 调用入口 | AgentVersion.dsh_ref | 必须与实际SDK登记的toolId一致 |
 | 训练与评估 | 性能证据 | AgentVersion.performance_evidence_json | 注明论文／真实或合成测试、实验模型与条件 |
+| 训练与评估 | 数据集 | AgentVersion.datasets_json | 可选数组；每项填写name，以及local_path或source_url，真实信息已知时一起提供，未知则省略 |
 | 适用与环境 | 运行条件 | AgentVersion.constraints_json | 真实解释器、版本及业务运行要求 |
 | 适用与环境 | 模型依赖 | AgentVersion.model_dependencies_json | 业务模型需求声明；不是DSH provider/model路由ID |
 | 选择策略 | 该版本的优选指标 | AgentVersion.selection_policy_json | 只写有依据的版本指标，不从Agent或分类继承 |
@@ -837,17 +884,51 @@ Python 依赖在部署准备阶段安装，运行任务时不自动安装。调�
 }
 ```
 
-以下三个字段当前没有填写，入库时**直接省略**：
+以下四个字段在上述既有版本资料中没有提供，入库时**直接省略**；开发者交付自己的版本时，有真实数据集则按10.2补充：
 
 | 字段 | 中文含义 |
 | --- | --- |
 | selection_policy_json | 该版本的优选指标 |
 | cost_json | 运行代价 |
 | effect_json | 任务效果 |
+| datasets_json | 数据集 |
 
-不要为了凑齐19项补空字符串、null、空对象、空数组或虚构数据。其他未知可选项同样省略。
+不要为了凑齐20项补空字符串、null、空对象、空数组或虚构数据。其他未知可选项同样省略。
 
-### 10.2 必须说明的存储与调用区别
+### 10.2 数据集如何填写
+
+**开发者交付入库资料时，应一并提供该版本真实使用的数据集；没有或无法确认时，省略整个 `datasets_json`。** 它属于AgentVersion的普通属性，不新增数据集顶点或关系。使用随包资料格式时，放在 `agentVersion.properties.datasets_json` 中。
+
+下面仅演示字段格式，名称、相对路径和example.com网址均为占位内容，不能直接当成真实数据集入库：
+
+```json
+{
+  "datasets_json": [
+    {
+      "name": "替换为真实的本地数据集名称",
+      "local_path": "your-agent/evaluation-set"
+    },
+    {
+      "name": "替换为真实的网上数据集名称",
+      "source_url": "https://example.com/datasets/evaluation-set.zip"
+    }
+  ]
+}
+```
+
+| 每项字段 | 填写要求 |
+| --- | --- |
+| name | 数据集真实名称，必填 |
+| local_path | 相对于平台公共 `FactoryConfig.dataset_root` 的路径；不要写开发者本机绝对路径，不越出根位置 |
+| source_url | 真实的HTTP／HTTPS来源地址，不含凭据、密钥或临时签名 |
+
+每项至少提供 `local_path`、`source_url` 中的一种，也可以同时提供；多个数据集使用多个数组项。根位置由平台统一管理，可为服务端目录或HTTP／HTTPS根地址，不要求每个业务插件重复配置。未配置根位置时仍可登记source_url，无法据此解析local_path；相对路径建议使用 `/`，兼容Linux部署。
+
+`datasets_json` 在HugeGraph中实际为可选TEXT，写入前逐属性 `JSON.stringify()`，交付资料中保留数组。这里只登记名称和位置，不把文件内容存进数据库；数据文件另行交付，登记不会自动下载、复制、提供文件服务或填入Run的input。业务真正使用数据集时，仍须按实际Tool契约传参并在服务端解析。
+
+在平台上查看或修改数据集时，使用支持 `datasets_json` 的 Gateway、Manage 和 WebUI 版本。只交付 SDK 或业务插件即可提供入库资料，实际入库由平台处理。
+
+### 10.3 必须说明的存储与调用区别
 
 1. **数据库TEXT存储**：input_schema、output_schema和所有 `*_json` 属性在HugeGraph中实际以TEXT保存。交付JSON中保留对象／数组便于审阅，写入前在平台入库边界对每个属性值执行 `JSON.stringify()`；不能只序列化整个请求，也不要把已序列化TEXT再次编码。SDK业务插件不负责直接写库。
 2. **登记规格不等于Tool参数**：上面的简明输入输出没有定义真实函数参数名。实际调用必须查询插件真实Tool契约；SDK的inputSchema仍填写对象JSON Schema，不能把这段登记说明原样当验证器，也不能猜参数叫text、path或其他名字。登记里的必填／非空等业务要求应由真实接口落实。

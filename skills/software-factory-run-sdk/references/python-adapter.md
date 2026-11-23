@@ -10,6 +10,8 @@ Python不持有真实厂商API Key。新开发优先使用任务网关（SDK／R
 
 ## 通信选择
 
+需要用户审阅文件时，Python先在Run目录生成文件（目录材料先打ZIP），TS接收产物消息后await addArtifact取得ID，再将本轮ID数组放进interaction.ask({...,artifactIds})。使用SDK／Runtime>=0.4.2和WebUI>=0.1.3；Python消息可以按内部协议引用已登记文件，但不得把任意路径直接当artifactId或绕过Run自行拼下载URL。不附文件时原问答消息可以保持不变。
+
 每任务一个子进程通常最容易隔离状态和取消，推荐 JSONL stdin/stdout；已有成熟的 HTTP 后端可保留，但要隔离 job、请求、历史和取消状态，后台协程崩溃必须能变成该 job 的失败终态。不要为一个简单脚本额外搭建 HTTP 服务。
 
 下表是**本插件可自行设计的内部协议示意，不是 Run SDK 的协议或导出 API**：

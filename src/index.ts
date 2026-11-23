@@ -4,6 +4,7 @@ import type { Artifact, ArtifactInput, BusinessResult, ModelRef, ModelRequest, M
 export type * from '@software-factory/contracts/runtime';
 
 export interface RunInteraction {
+  /** Ask the user; optional artifactIds show registered files for review (Runtime >=0.4.2). */
   ask<T extends InteractionRequest['type']>(request: Extract<InteractionRequest, { type: T }>): Promise<Extract<InteractionAnswer, { type: T }>>;
 }
 

@@ -19,7 +19,9 @@ SDK README 的占位业务函数、调试上下文创建器、调用 DSH Tool �
 
 ## 已核对的 SDK 形状
 
-新开发优先使用execution.model.getConnection取得任务网关连接，沿用OpenAI／Anthropic客户端。旧model.call及Python桥接保留兼容，账号登录等网关不支持的连接按宿主适配能力使用旧接口。SDK 0.4.1只修订文档，未改变0.4.0接口。
+0.4.2：三种interaction.ask请求均追加可选artifactIds:string[]，最多30个不重复的本Run已登记文件ID。不填／空数组不展示文件；Runtime校验归属并持久保存问题关联，WebUI>=0.1.3在问题及交互记录下提供认证下载。目录由工具先打ZIP再登记，文件不会自动进入result.files。新字段需Runtime>=0.4.2，旧调用不受影响；完整例子见SDK README 4.11。
+
+新开发优先使用execution.model.getConnection取得任务网关连接，沿用OpenAI／Anthropic客户端。旧model.call及Python桥接保留兼容，账号登录等网关不支持的连接按宿主适配能力使用旧接口。历史SDK 0.4.1只修订文档，0.4.2追加上述提问文件字段。
 
 0.4.0追加execution.interaction.ask，三种请求及返回按SDK README 4.11。依次await问题，等待不消耗任务执行预算，取消／超时抛错；不要把回答实现成模型Tool、自动默认答案或Python自行调用网页接口。主聊天来源由Host绑定，用户操作使用网页授权，任务模型凭证无回答权限。run.json保存问题和答案，重启不恢复调用栈。
 

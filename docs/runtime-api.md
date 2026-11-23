@@ -2,7 +2,13 @@
 
 后端、TS SDK和WebUI嵌入执行卡已实现。类型来源：packages/contracts/src/runtime.ts；SDK入口：packages/runtime-sdk。仅取消，不提供暂停／恢复。
 
-当前Runtime本地版本0.4.1、SDK 0.4.1，WebUI／编排0.1.2；DSH基线仍为0.2.1-alpha.2。SDK 0.4.1为文档修订，接口与0.4.0相同；新开发优先使用model.getConnection取得任务网关连接，model.call保留兼容及网关不支持的宿主连接。保留0.1／0.2／0.3业务插件的调用形状和apiVersion=1.0。
+当前Runtime／SDK本地版本0.4.2，WebUI 0.1.3、编排0.1.2；DSH基线仍为0.2.1-alpha.2。新开发优先使用model.getConnection取得任务网关连接，model.call保留兼容及网关不支持的宿主连接。保留0.1／0.2／0.3／0.4业务插件的调用形状和apiVersion=1.0。
+
+## 0.4.2 人工提问附审阅文件
+
+InteractionBase追加可选artifactIds:string[]，select／text／mixed均适用。不传或空数组保持原行为，最多30个不重复UUID。下层先生成真实文件、await addArtifact登记，再传当前Run返回的artifactId；Runtime在挂起问题前核对归属，未登记或其他Run文件报INTERACTION_ARTIFACT_NOT_FOUND。问题的request及对应事件、run.json保存ID关联；getRun的artifacts仍提供文件名和认证下载引用，listInteractions保持原返回形状并携带可选字段，不新增Remote或下载接口。
+
+配套WebUI 0.1.3在当前问题及已结算交互记录下展示所关联文件，点击沿用getArtifact及认证下载路由；下载不提交答案，不把审阅文件自动放入result.files，不枚举所有中间材料。目录由业务工具打成ZIP并作为文件登记，首版不做目录浏览或用户上传。新字段需Runtime>=0.4.2，旧Runtime的严格校验会拒绝，不静默剥离重试；旧插件不使用字段可继续运行。本文新增能力由现有Run卡承载，未改为DSH原生提问面板。
 
 ## 0.4.0 人工交互
 
